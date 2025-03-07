@@ -1,0 +1,53 @@
+[package]
+name = "scripts"
+version = "0.1.0"
+edition = "2024"
+
+# 対象ディレクトリのファイル読み込みとセーブ
+[[bin]]
+name = "template"
+path = "bin/00_template.rs"
+
+# AIによるデータ生成
+[[bin]]
+name = "create_questions"
+path = "bin/0_create_questions.rs"
+
+# AI生成データを型にバインドして保存する
+[[bin]]
+name = "json_read_to_struct"
+path = "bin/1_json_read_to_struct.rs"
+
+# id, child.idのナンバリング
+[[bin]]
+name = "numbering"
+path = "bin/2_numbering.rs"
+
+# レベル分け (N1, N2, N3, N4, N5) => (1, 2, 3, 4, 5)
+[[bin]]
+name = "leveling"
+path = "bin/3_leveling.rs"
+
+# カテゴリ分け 各カテゴリを一意の数字に変換
+[[bin]]
+name = "categorizing"
+path = "bin/4_categorizing.rs"
+
+# カテゴリ分け 各カテゴリを一意の数字に変換
+[[bin]]
+name = "to_meta"
+path = "bin/5_categories_to_meta.rs"
+
+# 不足パラメータを補う処理
+[[bin]]
+name = "add_params"
+path = "bin/6_add_params.rs"
+
+[dependencies]
+chrono = "0.4.40"
+env_logger = "0.11.6"
+google-generative-ai-rs = { version = "0.3.4", features = ["beta"] }
+log = "0.4.26"
+serde = "1.0.218"
+serde_json = "1.0.140"
+tokio = { version = "1.43.0", features = ["full"] }
