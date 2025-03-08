@@ -1,11 +1,9 @@
-use std::{
-    collections::HashMap,
-    env, fs,
-    path::{Path, PathBuf},
-};
+use std::{collections::HashMap, env};
 
-use log::{error, info};
+use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
+
+mod utils;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Question {
@@ -21,7 +19,6 @@ pub struct Question {
     #[serde(default)]
     pub chapter: String,
     pub sentence: String,
-    #[serde(default)]
     pub prerequisites: Option<String>,
     pub sub_questions: Vec<SubQuestion>,
 }
@@ -37,8 +34,7 @@ pub struct SubQuestion {
     #[serde(default)]
     pub answer_id: u32,
 
-    pub sentence: String,
-    #[serde(default)]
+    pub sentence: Option<String>,
     pub prerequisites: Option<String>,
     pub select_answer: Vec<SelectAnswer>,
     pub answer: String,
@@ -63,6 +59,11 @@ fn main() {
     let new_file = "concat_with_struct.json";
     let is_output = false;
 
+    // エラー確認用
+    // 読み込み失敗ファイル配列
+    // JSONファイルパースでエラーが発生した場合、ファイル名を格納する
+    let mut error_files = HashMap::new();
+
     // レベルごとの実行
     // 対象ディレクトリを指定し、ファイルを読み込む
     for level in target_levels {
@@ -72,14 +73,18 @@ fn main() {
         };
 
         let mut all_questions = vec![];
-        for file in walk_dir(&target_level_dir).into_iter() {
-            let read_content = read_file(file.clone());
-            match serde_json::from_str::<Vec<Question>>(&read_content) {
+        for file in crate::utils::walk_dir(&target_level_dir).into_iter() {
+            let read_content = crate::utils::read_file(file.clone());
+            let cleaned_content = remove_ai_json_syntax(&read_content);
+
+            match serde_json::from_str::<Vec<Question>>(&cleaned_content) {
                 Ok(questions) => {
                     all_questions.extend(questions);
                 }
                 Err(e) => {
-                    panic!("JSONのパースに失敗しました: {:?},  {}", file, e);
+                    error!("JSONのパースに失敗しました: {:?},  {}", file, e);
+                    error_files.insert(file.display().to_string(), e);
+                    continue;
                 }
             };
         }
@@ -101,42 +106,25 @@ fn main() {
         if is_output {
             let new_file_path = target_level_dir.join(new_file);
             let new_content = serde_json::to_string_pretty(&all_questions).unwrap();
-            write_file(new_file_path, &new_content);
+            crate::utils::write_file(new_file_path, &new_content);
         }
     }
     info!("done, elapsed: {:?}", start.elapsed());
-}
-
-#[allow(unused)]
-// 指定ディレクトリのファイルを走査する
-fn walk_dir(dir: &Path) -> Vec<PathBuf> {
-    let mut files = vec![];
-    for entry in fs::read_dir(dir).unwrap() {
-        let entry = entry.unwrap();
-        let path = entry.path();
-        if path.is_dir() {
-            continue;
-        } else {
-            files.push(path);
-        }
-    }
-    files
-}
-
-fn read_file(abs_filename: PathBuf) -> String {
-    std::fs::read_to_string(abs_filename).unwrap_or_else(|e| {
-        panic!("ファイルの読み込みに失敗しました: {}", e);
-    })
-}
-
-#[allow(unused)]
-fn write_file(abs_filename: PathBuf, content: &str) {
-    std::fs::write(abs_filename, content).unwrap_or_else(|e| {
-        panic!("ファイルの書き込みに失敗しました: {}", e);
+    // エラー確認用
+    error_files.iter().for_each(|(file, e)| {
+        error!("Error file: {:?}, {:?}", file, e);
     });
 }
 
-#[allow(unused)]
-fn replace_target(target: &str, line: &str) -> String {
-    line.replace(target, "")
+// AI出力のJSON構文宣言を削除する
+fn remove_ai_json_syntax(content: &str) -> String {
+    if !content.starts_with("```json") && !content.ends_with("```") {
+        content.to_string()
+    } else {
+        debug!("remove ai json syntax");
+        // replace ```json
+        let content = content.replacen(r"```json", "", 1);
+        // replace ```
+        content.replacen("```", "", 1)
+    }
 }
