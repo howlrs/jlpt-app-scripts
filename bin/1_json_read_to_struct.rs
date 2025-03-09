@@ -1,44 +1,8 @@
 use std::{collections::HashMap, env};
 
 use log::{debug, error, info};
-use serde::{Deserialize, Serialize};
 
 mod utils;
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Question {
-    #[serde(default)]
-    pub id: u32,
-    #[serde(default)]
-    pub level_id: u32,
-    pub level_name: String,
-    #[serde(default)]
-    pub category_id: u32,
-    pub category_name: String,
-
-    #[serde(default)]
-    pub chapter: String,
-    pub sentence: String,
-    pub prerequisites: Option<String>,
-    pub sub_questions: Vec<SubQuestion>,
-}
-
-type SelectAnswer = HashMap<String, String>;
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct SubQuestion {
-    #[serde(default)]
-    pub id: u32,
-    #[serde(default)]
-    pub hint_id: u32,
-    #[serde(default)]
-    pub answer_id: u32,
-
-    pub sentence: Option<String>,
-    pub prerequisites: Option<String>,
-    pub select_answer: Vec<SelectAnswer>,
-    pub answer: String,
-}
 
 /// 対象のディレクトリ走査しファイルを読み込む
 /// ファイルを文字列として読み込み、JSONをパースする
@@ -57,7 +21,7 @@ fn main() {
 
     // 出力先ファイル
     let new_file = "concat_with_struct.json";
-    let is_output = false;
+    let is_output = true;
 
     // エラー確認用
     // 読み込み失敗ファイル配列
@@ -77,7 +41,7 @@ fn main() {
             let read_content = crate::utils::read_file(file.clone());
             let cleaned_content = remove_ai_json_syntax(&read_content);
 
-            match serde_json::from_str::<Vec<Question>>(&cleaned_content) {
+            match serde_json::from_str::<Vec<crate::utils::Question>>(&cleaned_content) {
                 Ok(questions) => {
                     all_questions.extend(questions);
                 }
@@ -102,7 +66,7 @@ fn main() {
                 .fold(0, |acc, q| acc + q.sub_questions.len())
         );
 
-        // save new file
+        // save concat file
         if is_output {
             let new_file_path = target_level_dir.join(new_file);
             let new_content = serde_json::to_string_pretty(&all_questions).unwrap();
@@ -111,8 +75,25 @@ fn main() {
     }
     info!("done, elapsed: {:?}", start.elapsed());
     // エラー確認用
+    // 失敗したファイルを別ディレクトリにコピー
+    let target_dir = env::current_dir()
+        .unwrap()
+        .join(output_dir)
+        .join(target_dir);
+    let output_dir = target_dir.join("err");
+
+    if !error_files.is_empty() {
+        error!("Error file: {:?}", error_files.len());
+    }
     error_files.iter().for_each(|(file, e)| {
         error!("Error file: {:?}, {:?}", file, e);
+
+        if is_output {
+            // ファイルパスからファイル名を取得
+            let file = file.split("\\").last().unwrap();
+            let output_file = output_dir.join(file);
+            std::fs::copy(file, output_file).unwrap();
+        }
     });
 }
 
