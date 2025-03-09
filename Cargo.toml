@@ -18,20 +18,22 @@ path = "bin/0_create_questions.rs"
 name = "json_read_to_struct"
 path = "bin/1_json_read_to_struct.rs"
 
+# SubQuestionのsentenceをキーにした重複排除
+# Questionの新配列と重複の配列を保持
+# 保存は任意
+[[bin]]
+name = "duplicate"
+path = "bin/2_duplicate.rs"
+
 # id, child.idのナンバリング
 [[bin]]
 name = "numbering"
-path = "bin/2_numbering.rs"
+path = "bin/3_numbering.rs"
 
 # レベル分け (N1, N2, N3, N4, N5) => (1, 2, 3, 4, 5)
 [[bin]]
 name = "leveling"
-path = "bin/3_leveling.rs"
-
-# カテゴリ分け 各カテゴリを一意の数字に変換
-[[bin]]
-name = "categorizing"
-path = "bin/4_categorizing.rs"
+path = "bin/4_leveling.rs"
 
 # カテゴリ分け 各カテゴリを一意の数字に変換
 [[bin]]
@@ -43,11 +45,25 @@ path = "bin/5_categories_to_meta.rs"
 name = "add_params"
 path = "bin/6_add_params.rs"
 
+# データベースへの保存
+[[bin]]
+name = "questions_to_database"
+path = "bin/99_questions_to_database.rs"
+
+# カテゴリメタデータのデータベースへの保存
+[[bin]]
+name = "categories_to_database"
+path = "bin/99_categories_to_database.rs"
+
 [dependencies]
 chrono = "0.4.40"
 env_logger = "0.11.6"
 google-generative-ai-rs = { version = "0.3.4", features = ["beta"] }
 log = "0.4.26"
-serde = "1.0.218"
+serde = { version = "1.0.218", features = ["derive"] }
 serde_json = "1.0.140"
 tokio = { version = "1.43.0", features = ["full"] }
+
+firestore = "0.44"
+dotenv = "0.15.0"
+uuid = { version = "1.15.1", features = ["v4"] }

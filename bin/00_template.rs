@@ -14,6 +14,7 @@ fn main() {
 
     // 出力先ファイル
     let new_file = "concat_all.md";
+    let is_output = false;
 
     // レベルごとの実行
     // 対象ディレクトリを指定し、ファイルを読み込む
@@ -36,9 +37,11 @@ fn main() {
             continue;
         }
 
-        // save new file
-        let new_file_path = target_level_dir.join(new_file);
-        write_file(new_file_path, &concat_content);
+        if is_output {
+            // save new file
+            let new_file_path = target_level_dir.join(new_file);
+            write_file(new_file_path, &concat_content);
+        }
     }
     info!("done");
 }

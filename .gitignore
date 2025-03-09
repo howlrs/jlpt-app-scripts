@@ -1,7 +1,11 @@
 /target
 
-*/旧/
-**/resource/
-**/temp/
-
 /output/**
+
+.env
+/prompts/n2/ja-answer.md
+/prompts/n2/ja-hint.md
+/prompts/n2/ja-select.md
+/prompts/n3/ja-answer.md
+/prompts/n3/ja-hint.md
+/prompts/n3/ja-select.md

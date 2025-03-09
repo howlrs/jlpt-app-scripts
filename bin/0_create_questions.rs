@@ -12,13 +12,13 @@ async fn main() {
 
     // 経過時間計測
     let start = Instant::now();
+    // 各レベルのAPIリクエスト回数
+    let count = 1000;
 
     // 使用ディレクトリ
     let prompt_dir = "prompts";
     // 対象レベル
     let target_levels = vec!["n3", "n2"];
-    // APIリクエスト回数
-    let count = 1;
 
     // 出力先ディレクトリの作成
     let output_dir = env::current_dir().unwrap().join("output").join("questions");
