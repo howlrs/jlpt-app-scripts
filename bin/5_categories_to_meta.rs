@@ -9,7 +9,7 @@ fn main() {
 
     let output_dir = "output";
     let target_dir = "questions";
-    let target_levels = ["n2", "n3"];
+    let target_levels = ["n1", "n2", "n3", "n4", "n5"];
     let target_filename = "4_leveling_data.json";
 
     // 出力ファイル -> レベル統一したカテゴリカルデータ
@@ -40,10 +40,10 @@ fn main() {
         let mut cat_hash = HashMap::new();
         for q in &questions {
             cat_hash.insert(
-                format!("{}-{}", q.level_id, q.category_id),
+                format!("{}-{}", q.level_id, q.category_id.as_ref().unwrap()),
                 crate::utils::CatValue {
                     level_id: q.level_id,
-                    id: q.category_id,
+                    id: q.category_id.as_ref().unwrap().parse().unwrap(),
                     name: q.category_name.clone(),
                 },
             );

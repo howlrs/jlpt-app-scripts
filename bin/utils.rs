@@ -4,7 +4,7 @@ use google_generative_ai_rs::v1::{
     gemini::{Content, Model, Part, Role, request::Request},
 };
 use log::{error, info};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::{
     collections::HashMap,
     env, fs,
@@ -17,7 +17,7 @@ pub trait DBInsertTrait {
     fn id(&self) -> String;
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Debug, Clone, Default)]
 pub struct Question {
     #[serde(default)]
     pub id: Option<String>,
@@ -25,7 +25,7 @@ pub struct Question {
     pub level_id: u32,
     pub level_name: String,
     #[serde(default)]
-    pub category_id: u32,
+    pub category_id: Option<String>,
     pub category_name: String,
 
     #[serde(default)]
@@ -33,6 +33,58 @@ pub struct Question {
     pub sentence: String,
     pub prerequisites: Option<String>,
     pub sub_questions: Vec<SubQuestion>,
+}
+
+// QuestionのDeserializeトレイトの実装を拡張
+impl<'de> Deserialize<'de> for Question {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct QuestionHelper {
+            #[serde(default)]
+            id: Option<String>,
+            #[serde(default)]
+            level_id: u32,
+            level_name: String,
+            #[serde(default)]
+            category_id: Option<CategoryId>,
+            category_name: String,
+            #[serde(default)]
+            chapter: String,
+            sentence: String,
+            prerequisites: Option<String>,
+            sub_questions: Vec<SubQuestion>,
+        }
+
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum CategoryId {
+            String(String),
+            Number(u32),
+        }
+
+        let helper = QuestionHelper::deserialize(deserializer)?;
+
+        let category_id = match helper.category_id {
+            Some(CategoryId::String(s)) => Some(s),
+            Some(CategoryId::Number(n)) => Some(n.to_string()),
+            None => None,
+        };
+
+        Ok(Question {
+            id: helper.id,
+            level_id: helper.level_id,
+            level_name: helper.level_name,
+            category_id,
+            category_name: helper.category_name,
+            chapter: helper.chapter,
+            sentence: helper.sentence,
+            prerequisites: helper.prerequisites,
+            sub_questions: helper.sub_questions,
+        })
+    }
 }
 
 impl DBInsertTrait for Question {
@@ -242,6 +294,7 @@ where
             continue;
         }
 
+        // カテゴリー用
         // let uid = Uuid::new_v4().to_string();
 
         match firestore
@@ -249,6 +302,56 @@ where
             .insert()
             .into(collection_name)
             .document_id(value.id())
+            .object(&value)
+            .execute::<T>()
+            .await
+        {
+            Ok(_) => info!("inserted: {} {}", index, value.id()),
+            Err(e) => {
+                error!("insert failed: {} {}, {}", index, value.id(), e);
+                err_values.push(value);
+            }
+        };
+    }
+
+    err_values
+}
+
+#[allow(unused)]
+pub async fn to_database_with_uuid<T>(
+    is_output: bool,
+    collection_name: &str,
+    values: Vec<T>,
+) -> Vec<T>
+where
+    T: crate::utils::DBInsertTrait + Serialize + for<'de> Deserialize<'de> + Send + Sync,
+{
+    let project_id = std::env::var("PROJECT_ID").expect("PROJECT_ID must be set");
+
+    let firestore = match FirestoreDb::new(project_id).await {
+        Ok(firestore) => firestore,
+        Err(e) => {
+            error!("FirestoreDb::new failed: {:?}", e);
+            return values;
+        }
+    };
+
+    let mut err_values = vec![];
+
+    for (index, value) in values.into_iter().enumerate() {
+        if !is_output {
+            info!("[not save] insert: {} {}", index, value.id());
+            continue;
+        }
+
+        // カテゴリー用
+        let uid = Uuid::new_v4().to_string();
+
+        match firestore
+            .fluent()
+            .insert()
+            .into(collection_name)
+            .document_id(uid)
             .object(&value)
             .execute::<T>()
             .await

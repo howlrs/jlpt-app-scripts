@@ -18,7 +18,7 @@ async fn main() {
     // 使用ディレクトリ
     let prompt_dir = "prompts";
     // 対象レベル
-    let target_levels = vec!["n3", "n2"];
+    let target_levels = ["n1", "n2", "n3", "n4", "n5"];
 
     // 出力先ディレクトリの作成
     let output_dir = env::current_dir().unwrap().join("output").join("questions");

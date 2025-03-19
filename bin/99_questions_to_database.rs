@@ -11,7 +11,7 @@ async fn main() {
 
     let output_dir = "output";
     let target_dir = "questions";
-    let target_levels = ["n2", "n3"];
+    let target_levels = ["n1", "n2", "n3", "n4", "n5"];
     let target_filename = "4_leveling_data.json";
 
     // データベース登録関数はTであるため、読み込む型に応じた変数を用意する
@@ -52,7 +52,7 @@ async fn main() {
                 err_values.len()
             );
             let to_json = serde_json::to_string_pretty(&err_values).unwrap();
-            let output_filepath = target_level_dir.join("save_err_to_db.json");
+            let output_filepath = target_level_dir.join("err").join("save_err_to_db.json");
             crate::utils::write_file(output_filepath, to_json.as_str());
         }
     }

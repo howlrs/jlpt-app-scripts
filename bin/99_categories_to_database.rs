@@ -18,7 +18,7 @@ async fn main() {
 
     // 出力の可否
     let is_output = true;
-    let collection_name = "categories_meta";
+    let collection_name = "categories_raw";
 
     // 対象ディレクトリを指定し、ファイルを読み込む
     let target_level_dir = {
@@ -41,7 +41,7 @@ async fn main() {
         }
     };
 
-    let err_values = crate::utils::to_database(is_output, collection_name, values).await;
+    let err_values = crate::utils::to_database_with_uuid(is_output, collection_name, values).await;
 
     if !err_values.is_empty() {
         info!(
@@ -49,7 +49,7 @@ async fn main() {
             err_values.len()
         );
         let to_json = serde_json::to_string_pretty(&err_values).unwrap();
-        let output_filepath = target_level_dir.join("save_err_to_db.json");
+        let output_filepath = target_level_dir.join("err").join("save_err_to_db.json");
         crate::utils::write_file(output_filepath, to_json.as_str());
     }
 

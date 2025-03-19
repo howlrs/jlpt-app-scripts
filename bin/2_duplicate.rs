@@ -10,12 +10,12 @@ fn main() {
 
     let output_dir = "output";
     let target_dir = "questions";
-    let target_levels = ["n2", "n3"];
+    let target_levels = ["n1", "n2", "n3", "n4", "n5"];
     let target_file = "concat_with_struct.json";
 
     // 出力先ファイル
-    let new_file = "removed_duplicate_rows_concat_all.json";
     let is_output = true;
+    let new_file = "removed_duplicate_rows_concat_all.json";
 
     // レベルごとの実行
     // 対象ディレクトリを指定し、ファイルを読み込む

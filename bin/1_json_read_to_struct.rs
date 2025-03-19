@@ -16,12 +16,12 @@ fn main() {
 
     let output_dir = "output";
     let target_dir = "questions";
-    let target_levels = ["n2", "n3"];
+    let target_levels = ["n1", "n2", "n3", "n4", "n5"];
     // let target_file = "concat_all.json";
 
     // 出力先ファイル
-    let new_file = "concat_with_struct.json";
     let is_output = true;
+    let new_file = "concat_with_struct.json";
 
     // エラー確認用
     // 読み込み失敗ファイル配列
@@ -46,7 +46,7 @@ fn main() {
                     all_questions.extend(questions);
                 }
                 Err(e) => {
-                    error!("JSONのパースに失敗しました: {:?},  {}", file, e);
+                    // error!("JSONのパースに失敗しました: {:?},  {}", file, e);
                     error_files.insert(file.display().to_string(), e);
                     continue;
                 }
@@ -82,9 +82,6 @@ fn main() {
         .join(target_dir);
     let output_dir = target_dir.join("err");
 
-    if !error_files.is_empty() {
-        error!("Error file: {:?}", error_files.len());
-    }
     error_files.iter().for_each(|(file, e)| {
         error!("Error file: {:?}, {:?}", file, e);
 
@@ -95,6 +92,9 @@ fn main() {
             std::fs::copy(file, output_file).unwrap();
         }
     });
+    if !error_files.is_empty() {
+        error!("Error file: {:?}", error_files.len());
+    }
 }
 
 // AI出力のJSON構文宣言を削除する

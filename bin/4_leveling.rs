@@ -9,7 +9,7 @@ fn main() {
 
     let output_dir = "output";
     let target_dir = "questions";
-    let target_levels = ["n2", "n3"];
+    let target_levels = ["n1", "n2", "n3", "n4", "n5"];
     let target_filename = "3_numbering_data.json";
 
     // 出力ファイル

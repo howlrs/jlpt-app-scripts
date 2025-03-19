@@ -10,7 +10,7 @@ fn main() {
 
     let output_dir = "output";
     let target_dir = "questions";
-    let target_levels = ["n3", "n2"];
+    let target_levels = ["n1", "n2", "n3", "n4", "n5"];
 
     // 出力先ファイル
     let new_file = "concat_all.md";
