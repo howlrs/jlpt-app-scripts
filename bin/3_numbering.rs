@@ -1,70 +1,48 @@
-use std::env;
-
-use log::{error, info};
+use log::{info, warn};
 
 mod utils;
+use crate::utils::{
+    read_questions_from_stage, write_questions_to_stage,
+    LEVELS, STAGE_2_OUTPUT, STAGE_3_OUTPUT,
+};
 
+/// Assign unique IDs to each Question and sequential IDs to their SubQuestions.
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    crate::utils::init_logger();
 
-    let output_dir = "output";
-    let target_dir = "questions";
-    let target_levels = ["n1", "n2", "n3", "n4", "n5"];
-    let target_filename = "removed_duplicate_rows_concat_all.json";
-
-    // 出力ファイル
-    let is_output = true;
-    let output_file = "3_numbering_data.json";
-
-    // レベルごとの実行
-    // 対象ディレクトリを指定し、ファイルを読み込む
-    for level in target_levels {
-        let target_level_dir = {
-            let current_dir = env::current_dir().unwrap();
-            let question_dir = current_dir.join(output_dir).join(target_dir);
-
-            question_dir.join(level)
-        };
-
-        let target_filepath = target_level_dir.join(target_filename);
-        if !target_filepath.exists() {
-            error!("ファイルが存在しません: {:?}", target_filepath);
-            continue;
-        }
-
-        // read file to string
-        let content = crate::utils::read_file(target_filepath.clone());
-        let mut questions = match serde_json::from_str::<Vec<crate::utils::Question>>(&content) {
-            Ok(questions) => questions,
+    for level in LEVELS {
+        let mut questions = match read_questions_from_stage(level, STAGE_2_OUTPUT) {
+            Ok(q) => q,
             Err(e) => {
-                error!("ファイルが存在しません: {:?}, {:?}", target_filepath, e);
+                warn!("level {}: {}", level, e);
                 continue;
             }
         };
 
-        // question.id, sub_question.id を一意にする
+        if questions.is_empty() {
+            warn!("level {}: no questions found, skipping", level);
+            continue;
+        }
+
+        // Assign IDs using the existing numbering() method
         for question in questions.iter_mut() {
-            //初期IDはuuidで生成
             question.numbering();
         }
 
-        // 末尾2配列を表示
+        // Log tail for quick verification
+        let tail_count = questions.len().min(2);
         info!(
-            "tail: {:?}",
-            questions
-                .iter()
-                .skip(questions.len() - 2)
-                .collect::<Vec<&crate::utils::Question>>()
+            "level {}: total {}, tail: {:?}",
+            level,
+            questions.len(),
+            &questions[questions.len() - tail_count..]
         );
 
-        if is_output {
-            // concat content
-            let to_json = serde_json::to_string_pretty(&questions).unwrap();
-
-            // save new file
-            let output_filepath = target_level_dir.join(output_file);
-            crate::utils::write_file(output_filepath, to_json.as_str());
+        match write_questions_to_stage(level, STAGE_3_OUTPUT, &questions) {
+            Ok(_) => info!("level {}: wrote {}", level, STAGE_3_OUTPUT),
+            Err(e) => warn!("level {}: failed to write: {}", level, e),
         }
     }
+
     info!("done");
 }

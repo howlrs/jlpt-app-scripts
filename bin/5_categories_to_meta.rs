@@ -1,49 +1,66 @@
-use std::{collections::HashMap, env};
+use std::collections::HashMap;
 
-use log::{error, info};
+use log::{error, info, warn};
 
 mod utils;
+use crate::utils::{
+    read_questions_from_stage, write_file, level_dir,
+    CatValue, LEVELS, STAGE_4_OUTPUT, STAGE_5_OUTPUT,
+};
 
+/// Extract unique category metadata from leveled questions across all levels.
+/// Output a single combined JSON file at the questions root directory.
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-
-    let output_dir = "output";
-    let target_dir = "questions";
-    let target_levels = ["n1", "n2", "n3", "n4", "n5"];
-    let target_filename = "4_leveling_data.json";
-
-    // 出力ファイル -> レベル統一したカテゴリカルデータ
-    let is_output = true;
-    let output_file = "5_categories_meta.json";
+    crate::utils::init_logger();
 
     let mut vec_catvalue = Vec::new();
 
-    // レベルごとの実行
-    // 対象ディレクトリを指定し、ファイルを読み込む
-    for level in target_levels {
-        let target_level_dir = {
-            let current_dir = env::current_dir().unwrap();
-            current_dir.join(output_dir).join(target_dir).join(level)
+    for level in LEVELS {
+        let questions = match read_questions_from_stage(level, STAGE_4_OUTPUT) {
+            Ok(q) => q,
+            Err(e) => {
+                error!("level {}: failed to read stage input: {}", level, e);
+                continue;
+            }
         };
 
-        let target_filepath = target_level_dir.join(target_filename);
-        if !target_filepath.exists() {
-            error!("ファイルが存在しません: {:?}", target_filepath);
+        if questions.is_empty() {
+            warn!("level {}: no questions found, skipping", level);
             continue;
         }
 
-        // read file to string
-        let content = crate::utils::read_file(target_filepath);
-        let questions = serde_json::from_str::<Vec<crate::utils::Question>>(&content).unwrap();
-
-        // ユニークなカテゴリを取得
+        // Extract unique categories for this level
         let mut cat_hash = HashMap::new();
         for q in &questions {
+            // CRITICAL FIX: Graceful error handling for category_id parsing
+            // instead of .as_ref().unwrap().parse().unwrap()
+            let category_id_str = match q.category_id.as_ref() {
+                Some(id) => id,
+                None => {
+                    warn!(
+                        "level {}: question '{}' has no category_id, skipping",
+                        level, q.sentence
+                    );
+                    continue;
+                }
+            };
+
+            let category_id: u32 = match category_id_str.parse() {
+                Ok(id) => id,
+                Err(e) => {
+                    warn!(
+                        "level {}: question '{}' has invalid category_id '{}': {}, skipping",
+                        level, q.sentence, category_id_str, e
+                    );
+                    continue;
+                }
+            };
+
             cat_hash.insert(
-                format!("{}-{}", q.level_id, q.category_id.as_ref().unwrap()),
-                crate::utils::CatValue {
+                format!("{}-{}", q.level_id, category_id),
+                CatValue {
                     level_id: q.level_id,
-                    id: q.category_id.as_ref().unwrap().parse().unwrap(),
+                    id: category_id,
                     name: q.category_name.clone(),
                 },
             );
@@ -56,16 +73,12 @@ fn main() {
 
     info!("categories meta: {:?}", vec_catvalue);
 
-    if is_output {
-        // レベル統一
-        let to_json_str = serde_json::to_string_pretty(&vec_catvalue).unwrap();
-        let target_dir = env::current_dir()
-            .unwrap()
-            .join(output_dir)
-            .join(target_dir);
-        let output_filepath = target_dir.join(output_file);
-        crate::utils::write_file(output_filepath, to_json_str.as_str());
-    }
+    // Write to questions root directory (one level above any specific level)
+    let to_json_str = serde_json::to_string_pretty(&vec_catvalue).unwrap();
+    // level_dir("..") would be wrong; go up from any level dir to get questions root
+    let output_dir = level_dir("n1").parent().unwrap().to_path_buf();
+    let output_filepath = output_dir.join(STAGE_5_OUTPUT);
+    write_file(output_filepath, &to_json_str);
 
     info!("done");
 }

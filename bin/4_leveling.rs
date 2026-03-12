@@ -1,59 +1,48 @@
-use std::env;
-
-use log::{error, info};
+use log::{error, info, warn};
 
 mod utils;
+use crate::utils::{
+    read_questions_from_stage, write_questions_to_stage,
+    LEVELS, STAGE_3_OUTPUT, STAGE_4_OUTPUT,
+};
 
+/// Parse level_name into a numeric level_id for each Question.
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    crate::utils::init_logger();
 
-    let output_dir = "output";
-    let target_dir = "questions";
-    let target_levels = ["n1", "n2", "n3", "n4", "n5"];
-    let target_filename = "3_numbering_data.json";
-
-    // 出力ファイル
-    let is_output = true;
-    let output_file = "4_leveling_data.json";
-
-    // レベルごとの実行
-    // 対象ディレクトリを指定し、ファイルを読み込む
-    for level in target_levels {
-        let target_level_dir = {
-            let current_dir = env::current_dir().unwrap();
-            current_dir.join(output_dir).join(target_dir).join(level)
+    for level in LEVELS {
+        // FIX: Use read_questions_from_stage with proper error handling
+        // instead of raw serde_json::from_str().unwrap()
+        let mut questions = match read_questions_from_stage(level, STAGE_3_OUTPUT) {
+            Ok(q) => q,
+            Err(e) => {
+                error!("level {}: failed to read stage input: {}", level, e);
+                continue;
+            }
         };
 
-        let target_filepath = target_level_dir.join(target_filename);
-        if !target_filepath.exists() {
-            error!("ファイルが存在しません: {:?}", target_filepath);
+        if questions.is_empty() {
+            warn!("level {}: no questions found, skipping", level);
             continue;
         }
 
-        // read file to string
-        let content = crate::utils::read_file(target_filepath);
-        let mut questions = serde_json::from_str::<Vec<crate::utils::Question>>(&content).unwrap();
-
-        // level_nameからlevel.idに番号をふる
+        // Apply leveling to each question
         questions.iter_mut().for_each(|q| q.leveling());
 
-        // 末尾2配列を表示
+        // Log tail for quick verification
+        let tail_count = questions.len().min(2);
         info!(
-            "tail: {:?}",
-            questions
-                .iter()
-                .skip(questions.len() - 2)
-                .collect::<Vec<&crate::utils::Question>>()
+            "level {}: total {}, tail: {:?}",
+            level,
+            questions.len(),
+            &questions[questions.len() - tail_count..]
         );
 
-        if is_output {
-            // concat content
-            let to_json = serde_json::to_string_pretty(&questions).unwrap();
-
-            // save new file
-            let output_filepath = target_level_dir.join(output_file);
-            crate::utils::write_file(output_filepath, to_json.as_str());
+        match write_questions_to_stage(level, STAGE_4_OUTPUT, &questions) {
+            Ok(_) => info!("level {}: wrote {}", level, STAGE_4_OUTPUT),
+            Err(e) => error!("level {}: failed to write: {}", level, e),
         }
     }
+
     info!("done");
 }

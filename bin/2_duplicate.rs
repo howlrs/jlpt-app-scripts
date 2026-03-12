@@ -1,106 +1,93 @@
-use std::{collections::HashMap, env};
+use std::collections::HashSet;
 
-use log::{error, info};
+use log::{info, warn};
 
 mod utils;
-use crate::utils::{Question, read_file, write_file};
+use crate::utils::{
+    read_questions_from_stage, write_questions_to_stage,
+    Question, LEVELS, STAGE_1_5_VALIDATED, STAGE_2_OUTPUT,
+};
 
+/// Read validated questions, deduplicate at the SubQuestion level.
+///
+/// CRITICAL FIX: The old logic marked an entire Question as duplicate if ANY
+/// SubQuestion sentence had been seen before. The new logic instead:
+///   1. Tracks seen SubQuestion sentences in a HashSet
+///   2. For each Question, filters out only the duplicate SubQuestions
+///   3. If a Question has 0 remaining SubQuestions after filtering, discards it
+///   4. Keeps Questions that still have valid SubQuestions
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    crate::utils::init_logger();
 
-    let output_dir = "output";
-    let target_dir = "questions";
-    let target_levels = ["n1", "n2", "n3", "n4", "n5"];
-    let target_file = "concat_with_struct.json";
+    let start = std::time::Instant::now();
 
-    // 出力先ファイル
-    let is_output = true;
-    let new_file = "removed_duplicate_rows_concat_all.json";
+    for level in LEVELS {
+        let questions = match read_questions_from_stage(level, STAGE_1_5_VALIDATED) {
+            Ok(q) => q,
+            Err(e) => {
+                warn!("level {}: {}", level, e);
+                continue;
+            }
+        };
 
-    // レベルごとの実行
-    // 対象ディレクトリを指定し、ファイルを読み込む
-    for level in target_levels {
-        let questions = read_questions(output_dir, target_dir, target_file, level);
+        if questions.is_empty() {
+            warn!("level {}: no questions found, skipping", level);
+            continue;
+        }
 
-        let mut removed_duplicate_questions = HashMap::new();
-        let mut duplicate_questions = HashMap::new();
+        let original_count = questions.len();
+        let original_sub_count: usize = questions.iter().map(|q| q.sub_questions.len()).sum();
 
-        // HashMapのKeyにSubQuestion.sentenceを追加し親Questionを保存
-        // 重複があった場合はdupulicate_questionsに保存
+        // Track seen SubQuestion sentences
+        let mut seen_sentences: HashSet<String> = HashSet::new();
+        let mut deduplicated: Vec<Question> = Vec::new();
+        let mut removed_sub_count: usize = 0;
+
         for question in questions {
-            // 最初に元の質問文を保存
-            removed_duplicate_questions.insert(question.sentence.clone(), question.clone());
+            // Filter SubQuestions: keep only those with unseen sentences
+            let mut kept_subs = Vec::new();
+            for sub_q in question.sub_questions {
+                let key = sub_q
+                    .sentence
+                    .as_deref()
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
 
-            // サブ質問をイテレート
-            for sub_question in &question.sub_questions {
-                if let Some(sentence) = &sub_question.sentence {
-                    match removed_duplicate_questions.entry(sentence.clone()) {
-                        std::collections::hash_map::Entry::Occupied(_) => {
-                            // 重複があった場合はdupulicate_questionsに保存
-                            // 再重複は無視
-                            duplicate_questions.insert(sentence.clone(), question.clone());
-                        }
-                        std::collections::hash_map::Entry::Vacant(entry) => {
-                            // 重複がない場合はHashMapに追加
-                            entry.insert(question.clone());
-                        }
-                    }
+                if key.is_empty() || seen_sentences.insert(key) {
+                    // Empty sentence or first time seeing this sentence -> keep it
+                    kept_subs.push(sub_q);
+                } else {
+                    removed_sub_count += 1;
                 }
             }
+
+            // Discard the Question entirely if no SubQuestions remain
+            if kept_subs.is_empty() {
+                continue;
+            }
+
+            deduplicated.push(Question {
+                sub_questions: kept_subs,
+                ..question
+            });
         }
 
-        // 重複を排除したlength, 重複したlengthを出力
         info!(
-            "leve: {}: new array: {}, duplicate: {}",
+            "level {}: questions {} -> {}, sub_questions {} -> {} (removed {} duplicate subs)",
             level,
-            removed_duplicate_questions.len(),
-            duplicate_questions.len()
+            original_count,
+            deduplicated.len(),
+            original_sub_count,
+            original_sub_count - removed_sub_count,
+            removed_sub_count,
         );
 
-        if is_output {
-            let target_level_dir = {
-                let current_dir = env::current_dir().unwrap();
-                current_dir.join(output_dir).join(target_dir).join(level)
-            };
-            let output_file = target_level_dir.join(new_file);
-
-            let concat_content = removed_duplicate_questions
-                .values()
-                .chain(duplicate_questions.values())
-                .cloned()
-                .collect::<Vec<Question>>();
-            let to_json_value = serde_json::to_string_pretty(&concat_content).unwrap();
-
-            write_file(output_file, &to_json_value);
+        match write_questions_to_stage(level, STAGE_2_OUTPUT, &deduplicated) {
+            Ok(_) => info!("level {}: wrote {}", level, STAGE_2_OUTPUT),
+            Err(e) => warn!("level {}: failed to write: {}", level, e),
         }
     }
-    info!("done");
-}
 
-fn read_questions(
-    output_dir: &str,
-    target_dir: &str,
-    target_file: &str,
-    level: &str,
-) -> Vec<crate::utils::Question> {
-    let target_filepath = {
-        let current_dir = env::current_dir().unwrap();
-        current_dir
-            .join(output_dir)
-            .join(target_dir)
-            .join(level)
-            .join(target_file)
-    };
-    if !target_filepath.exists() {
-        error!("ファイルデータが存在しません: {:?}", target_filepath);
-        return vec![];
-    }
-    let content = read_file(target_filepath);
-    match serde_json::from_str::<Vec<crate::utils::Question>>(&content) {
-        Ok(questions) => questions,
-        Err(e) => {
-            error!("JSONデータのパースに失敗しました: {:?}", e);
-            vec![]
-        }
-    }
+    info!("done, elapsed: {:?}", start.elapsed());
 }

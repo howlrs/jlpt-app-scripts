@@ -1,7 +1,10 @@
 use firestore::FirestoreDb;
 use google_generative_ai_rs::v1::{
     api::Client,
-    gemini::{Content, Model, Part, Role, request::Request},
+    gemini::{
+        request::{GenerationConfig, Request, SystemInstructionContent, SystemInstructionPart},
+        Content, Model, Part, Role,
+    },
 };
 use log::{error, info};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -12,10 +15,36 @@ use std::{
 };
 use uuid::Uuid;
 
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+pub const LEVELS: &[&str] = &["n1", "n2", "n3", "n4", "n5"];
+pub const OUTPUT_DIR: &str = "output";
+pub const QUESTIONS_DIR: &str = "questions";
+pub const PROMPT_DIR: &str = "prompts";
+
+// Pipeline stage file names
+pub const STAGE_1_OUTPUT: &str = "1_parsed.json";
+pub const STAGE_1_5_VALIDATED: &str = "1_5_validated.json";
+pub const STAGE_1_5_REJECTED: &str = "1_5_rejected.json";
+pub const STAGE_2_OUTPUT: &str = "2_deduplicated.json";
+pub const STAGE_3_OUTPUT: &str = "3_numbered.json";
+pub const STAGE_4_OUTPUT: &str = "4_leveled.json";
+pub const STAGE_5_OUTPUT: &str = "5_categories_meta.json";
+
+// ---------------------------------------------------------------------------
+// Traits
+// ---------------------------------------------------------------------------
+
 pub trait DBInsertTrait {
     #[allow(unused)]
     fn id(&self) -> String;
 }
+
+// ---------------------------------------------------------------------------
+// Structs
+// ---------------------------------------------------------------------------
 
 #[derive(Serialize, Debug, Clone, Default)]
 pub struct Question {
@@ -169,45 +198,131 @@ impl DBInsertTrait for CatValue {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Directory / path helpers
+// ---------------------------------------------------------------------------
+
+/// Get the level output directory path: output/questions/{level}
 #[allow(unused)]
-// 指定ディレクトリのファイルを走査する
+pub fn level_dir(level: &str) -> PathBuf {
+    PathBuf::from(OUTPUT_DIR).join(QUESTIONS_DIR).join(level)
+}
+
+/// Ensure directory exists, creating if needed.
+#[allow(unused)]
+pub fn ensure_dir(path: &Path) -> Result<(), String> {
+    if !path.exists() {
+        fs::create_dir_all(path)
+            .map_err(|e| format!("Failed to create directory {}: {}", path.display(), e))?;
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// File I/O
+// ---------------------------------------------------------------------------
+
+/// Walk a directory and return all file paths (non-recursive, files only).
+#[allow(unused)]
 pub fn walk_dir(dir: &Path) -> Vec<PathBuf> {
     let mut files = vec![];
-    for entry in fs::read_dir(dir).unwrap() {
-        let entry = entry.unwrap();
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(e) => {
+            error!("Failed to read directory {}: {}", dir.display(), e);
+            return files;
+        }
+    };
+    for entry in entries {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
         let path = entry.path();
-        if path.is_dir() {
-            continue;
-        } else {
+        if path.is_file() {
             files.push(path);
         }
     }
     files
 }
 
+/// Read a file to string. Returns `Result` instead of panicking.
 pub fn read_file(abs_filename: PathBuf) -> String {
-    std::fs::read_to_string(abs_filename).unwrap_or_else(|e| {
-        panic!("ファイルの読み込みに失敗しました: {}", e);
+    std::fs::read_to_string(&abs_filename).unwrap_or_else(|e| {
+        panic!("ファイルの読み込みに失敗しました: {} – {}", abs_filename.display(), e);
     })
 }
 
+/// Write content to a file. Returns `Result` instead of panicking.
 #[allow(unused)]
 pub fn write_file(abs_filename: PathBuf, content: &str) {
-    std::fs::write(abs_filename, content).unwrap_or_else(|e| {
-        panic!("ファイルの書き込みに失敗しました: {}", e);
+    std::fs::write(&abs_filename, content).unwrap_or_else(|e| {
+        panic!("ファイルの書き込みに失敗しました: {} – {}", abs_filename.display(), e);
     });
 }
 
+/// Read questions from a stage output file for a given level.
 #[allow(unused)]
-pub fn replace_target(target: &str, line: &str) -> String {
-    line.replace(target, "")
+pub fn read_questions_from_stage(level: &str, stage_file: &str) -> Result<Vec<Question>, String> {
+    let path = level_dir(level).join(stage_file);
+    let content = fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
+    serde_json::from_str::<Vec<Question>>(&content)
+        .map_err(|e| format!("Failed to parse {}: {}", path.display(), e))
 }
+
+/// Write questions to a stage output file for a given level.
+#[allow(unused)]
+pub fn write_questions_to_stage(
+    level: &str,
+    stage_file: &str,
+    questions: &[Question],
+) -> Result<(), String> {
+    let dir = level_dir(level);
+    ensure_dir(&dir)?;
+    let path = dir.join(stage_file);
+    let json = serde_json::to_string_pretty(questions)
+        .map_err(|e| format!("Failed to serialize questions: {}", e))?;
+    fs::write(&path, json).map_err(|e| format!("Failed to write {}: {}", path.display(), e))
+}
+
+/// Remove AI markdown syntax (```json ... ```) from JSON responses.
+#[allow(unused)]
+pub fn remove_ai_json_syntax(content: &str) -> String {
+    let trimmed = content.trim();
+    let trimmed = trimmed
+        .strip_prefix("```json")
+        .or_else(|| trimmed.strip_prefix("```"))
+        .unwrap_or(trimmed);
+    let trimmed = trimmed
+        .strip_suffix("```")
+        .unwrap_or(trimmed);
+    trimmed.trim().to_string()
+}
+
+// ---------------------------------------------------------------------------
+// Logging
+// ---------------------------------------------------------------------------
+
+/// Initialize the env_logger.
+#[allow(unused)]
+pub fn init_logger() {
+    env_logger::init();
+}
+
+// ---------------------------------------------------------------------------
+// Text helpers
+// ---------------------------------------------------------------------------
 
 #[allow(unused)]
 pub fn replace_level(text: &str, target_level: &str) -> String {
     let replace_text = target_level.to_string().to_uppercase();
     text.replace("**LEVEL**", &format!("**{}**", replace_text))
 }
+
+// ---------------------------------------------------------------------------
+// Gemini API
+// ---------------------------------------------------------------------------
 
 #[allow(unused)]
 pub fn get_key_and_model() -> (String, String) {
@@ -232,10 +347,33 @@ pub fn get_key_and_model() -> (String, String) {
     (key, model.to_string())
 }
 
-// gemini api request
+/// Send a request to the Gemini API with generation config and optional system instruction.
 #[allow(unused)]
-pub async fn request_gemini_api(key: String, model: String, text: &str) -> Result<String, String> {
+pub async fn request_gemini_api(
+    key: String,
+    model: String,
+    text: &str,
+    system_instruction: Option<&str>,
+) -> Result<String, String> {
     let client = Client::new_from_model(Model::Custom(model.to_string()), key.to_string());
+
+    let generation_config = Some(GenerationConfig {
+        temperature: Some(0.8),
+        top_p: None,
+        top_k: None,
+        candidate_count: None,
+        max_output_tokens: Some(8192),
+        stop_sequences: None,
+        response_mime_type: None,
+        response_schema: None,
+    });
+
+    let sys_instruction = system_instruction.map(|t| SystemInstructionContent {
+        parts: vec![SystemInstructionPart {
+            text: Some(t.to_string()),
+        }],
+    });
+
     let request = Request {
         contents: vec![Content {
             role: Role::User,
@@ -248,35 +386,44 @@ pub async fn request_gemini_api(key: String, model: String, text: &str) -> Resul
         }],
         tools: vec![],
         safety_settings: vec![],
-        generation_config: None,
-        system_instruction: None,
+        generation_config,
+        system_instruction: sys_instruction,
     };
 
-    let response = match client.post(75, &request).await {
-        Ok(r) => r,
-        Err(e) => {
-            return Err(format!("Error: {}", e));
-        }
-    };
+    let response = client
+        .post(75, &request)
+        .await
+        .map_err(|e| format!("Gemini API request failed: {}", e))?;
 
-    let into_rest = response.rest().unwrap();
-    match into_rest
+    let rest_response = response
+        .rest()
+        .ok_or_else(|| "Gemini API returned a non-REST response (streaming?)".to_string())?;
+
+    rest_response
         .candidates
         .first()
         .and_then(|c| c.content.parts.first())
         .and_then(|p| p.text.as_ref())
-    {
-        Some(t) => Ok(t.to_string()),
-        None => Err("Error".to_string()),
-    }
+        .map(|t| t.to_string())
+        .ok_or_else(|| "Gemini API response contained no text content".to_string())
 }
+
+// ---------------------------------------------------------------------------
+// Firestore helpers
+// ---------------------------------------------------------------------------
 
 #[allow(unused)]
 pub async fn to_database<T>(is_output: bool, collection_name: &str, values: Vec<T>) -> Vec<T>
 where
     T: crate::utils::DBInsertTrait + Serialize + for<'de> Deserialize<'de> + Send + Sync,
 {
-    let project_id = std::env::var("PROJECT_ID").expect("PROJECT_ID must be set");
+    let project_id = match std::env::var("PROJECT_ID") {
+        Ok(id) => id,
+        Err(_) => {
+            error!("PROJECT_ID must be set");
+            return values;
+        }
+    };
 
     let firestore = match FirestoreDb::new(project_id).await {
         Ok(firestore) => firestore,
@@ -293,9 +440,6 @@ where
             info!("[not save] insert: {} {}", index, value.id());
             continue;
         }
-
-        // カテゴリー用
-        // let uid = Uuid::new_v4().to_string();
 
         match firestore
             .fluent()
@@ -326,7 +470,13 @@ pub async fn to_database_with_uuid<T>(
 where
     T: crate::utils::DBInsertTrait + Serialize + for<'de> Deserialize<'de> + Send + Sync,
 {
-    let project_id = std::env::var("PROJECT_ID").expect("PROJECT_ID must be set");
+    let project_id = match std::env::var("PROJECT_ID") {
+        Ok(id) => id,
+        Err(_) => {
+            error!("PROJECT_ID must be set");
+            return values;
+        }
+    };
 
     let firestore = match FirestoreDb::new(project_id).await {
         Ok(firestore) => firestore,
@@ -344,7 +494,6 @@ where
             continue;
         }
 
-        // カテゴリー用
         let uid = Uuid::new_v4().to_string();
 
         match firestore
