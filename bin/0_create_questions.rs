@@ -45,13 +45,39 @@ async fn main() {
             continue;
         }
 
+        // チェックポイント: 既存ファイル数をカウントして再開位置を決定
+        let existing_files = utils::walk_dir(&output_dir)
+            .iter()
+            .filter(|f| {
+                f.extension()
+                    .map(|e| e == "json")
+                    .unwrap_or(false)
+            })
+            .count() as u32;
+
+        let start_from = if existing_files > 0 {
+            info!(
+                "[{}] チェックポイント: 既存{}件を検出。{}件目から再開",
+                level, existing_files, existing_files
+            );
+            existing_files
+        } else {
+            0
+        };
+
+        if start_from >= count {
+            info!("[{}] 既に{}件生成済み（目標{}件）。スキップ", level, existing_files, count);
+            continue;
+        }
+
+        let remaining = count - start_from;
         let mut level_success = 0u32;
         let mut level_fail = 0u32;
         let mut level_invalid_json = 0u32;
 
-        info!("[{}] 生成開始 ({}件)", level, count);
+        info!("[{}] 生成開始 (残り{}件, 既存{}件, 目標{}件)", level, remaining, existing_files, count);
 
-        for i in 0..count {
+        for i in start_from..count {
             let result = request_with_fallback(
                 &key,
                 &primary_model,
