@@ -57,8 +57,6 @@ pub struct Question {
     pub category_id: Option<String>,
     pub category_name: String,
 
-    #[serde(default)]
-    pub chapter: String,
     pub sentence: String,
     pub prerequisites: Option<String>,
     pub sub_questions: Vec<SubQuestion>,
@@ -80,8 +78,6 @@ impl<'de> Deserialize<'de> for Question {
             #[serde(default)]
             category_id: Option<CategoryId>,
             category_name: String,
-            #[serde(default)]
-            chapter: String,
             sentence: String,
             prerequisites: Option<String>,
             sub_questions: Vec<SubQuestion>,
@@ -108,7 +104,6 @@ impl<'de> Deserialize<'de> for Question {
             level_name: helper.level_name,
             category_id,
             category_name: helper.category_name,
-            chapter: helper.chapter,
             sentence: helper.sentence,
             prerequisites: helper.prerequisites,
             sub_questions: helper.sub_questions,
@@ -165,24 +160,21 @@ impl Question {
     }
 }
 
-type SelectAnswer = HashMap<String, String>;
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct SelectAnswer {
+    pub key: String,
+    pub value: String,
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct SubQuestion {
     #[serde(default)]
     pub id: u32,
-    #[serde(default)]
-    pub hint_id: u32,
-    #[serde(default)]
-    pub answer_id: u32,
 
     pub sentence: Option<String>,
     pub prerequisites: Option<String>,
     pub select_answer: Vec<SelectAnswer>,
     pub answer: String,
-
-    #[serde(default)]
-    pub voted: Option<i32>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

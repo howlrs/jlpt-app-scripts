@@ -127,7 +127,7 @@ fn validate_question(question: &Question) -> Vec<String> {
         let answer_key_exists = sub_q
             .select_answer
             .iter()
-            .any(|sa| sa.contains_key(&sub_q.answer));
+            .any(|sa| sa.key == sub_q.answer);
         if !answer_key_exists {
             reasons.push(format!(
                 "{}: answer '{}' does not match any key in select_answer",
@@ -137,26 +137,22 @@ fn validate_question(question: &Question) -> Vec<String> {
 
         // non-empty options: all select_answer values must be non-empty strings
         for (j, sa) in sub_q.select_answer.iter().enumerate() {
-            for (key, value) in sa {
-                if value.trim().is_empty() {
-                    reasons.push(format!(
-                        "{}: select_answer[{}] key '{}' has empty value",
-                        sub_label, j, key
-                    ));
-                }
+            if sa.value.trim().is_empty() {
+                reasons.push(format!(
+                    "{}: select_answer[{}] key '{}' has empty value",
+                    sub_label, j, sa.key
+                ));
             }
         }
 
         // no duplicate options: select_answer values must all be unique within a SubQuestion
         let mut seen_values = HashSet::new();
         for sa in &sub_q.select_answer {
-            for value in sa.values() {
-                if !seen_values.insert(value.trim().to_string()) {
-                    reasons.push(format!(
-                        "{}: duplicate select_answer value '{}'",
-                        sub_label, value
-                    ));
-                }
+            if !seen_values.insert(sa.value.trim().to_string()) {
+                reasons.push(format!(
+                    "{}: duplicate select_answer value '{}'",
+                    sub_label, sa.value
+                ));
             }
         }
     }
