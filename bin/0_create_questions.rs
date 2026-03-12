@@ -19,8 +19,11 @@ async fn main() {
         .and_then(|v| v.parse().ok())
         .unwrap_or(20);
 
-    let (key, model) = utils::get_key_and_model();
-    info!("model: {}, count/level: {}, interval: {}s", model, count, request_interval_secs);
+    let (key, primary_model, fallback_model) = utils::get_key_and_models();
+    info!(
+        "primary: {}, fallback: {}, count/level: {}, interval: {}s",
+        primary_model, fallback_model, count, request_interval_secs
+    );
 
     let mut total_success = 0u32;
     let mut total_fail = 0u32;
@@ -49,9 +52,10 @@ async fn main() {
         info!("[{}] 生成開始 ({}件)", level, count);
 
         for i in 0..count {
-            let result = request_with_retry(
+            let result = request_with_fallback(
                 &key,
-                &model,
+                &primary_model,
+                &fallback_model,
                 &prompt,
                 &system_instruction,
                 max_retries,
@@ -59,13 +63,25 @@ async fn main() {
             .await;
 
             match result {
-                Some(text) => {
+                Some((text, used_model)) => {
                     let cleaned = utils::remove_ai_json_syntax(&text);
 
-                    if serde_json::from_str::<serde_json::Value>(&cleaned).is_ok() {
+                    if let Ok(mut json_val) = serde_json::from_str::<serde_json::Value>(&cleaned) {
+                        // 各問題にgenerated_byフィールドを注入
+                        if let Some(arr) = json_val.as_array_mut() {
+                            for item in arr.iter_mut() {
+                                if let Some(obj) = item.as_object_mut() {
+                                    obj.insert(
+                                        "generated_by".to_string(),
+                                        serde_json::Value::String(used_model.clone()),
+                                    );
+                                }
+                            }
+                        }
+                        let output_json = serde_json::to_string_pretty(&json_val).unwrap();
                         let timestamp = chrono::Utc::now().timestamp();
                         let filepath = output_dir.join(format!("{}.json", timestamp));
-                        utils::write_file(filepath, &cleaned);
+                        utils::write_file(filepath, &output_json);
                         level_success += 1;
 
                         if (i + 1) % 50 == 0 || i == 0 {
@@ -159,40 +175,70 @@ fn build_system_instruction() -> String {
         .to_string()
 }
 
-/// リトライ付きAPI呼び出し
-async fn request_with_retry(
+/// フォールバックモデル付きリトライ
+///
+/// 戦略:
+///   1. プライマリモデルでmax_retries回リトライ
+///   2. プライマリが全て失敗 → フォールバックモデルで1回試行
+///
+/// 同一プロンプト・同一system_instructionなので、モデル違いでも
+/// 品質基準はプロンプト側で担保される。ただしフォールバック使用時は
+/// generated_byフィールドで追跡可能。
+///
+/// 戻り値: Some((レスポンステキスト, 使用モデル名))
+async fn request_with_fallback(
     key: &str,
-    model: &str,
+    primary_model: &str,
+    fallback_model: &str,
     prompt: &str,
     system_instruction: &str,
     max_retries: u32,
-) -> Option<String> {
+) -> Option<(String, String)> {
+    // プライマリモデルでリトライ
     for attempt in 0..=max_retries {
         match utils::request_gemini_api(
             key.to_string(),
-            model.to_string(),
+            primary_model.to_string(),
             prompt,
             Some(system_instruction),
         )
         .await
         {
-            Ok(text) => return Some(text),
+            Ok(text) => return Some((text, primary_model.to_string())),
             Err(e) => {
                 if attempt >= max_retries {
-                    error!("{}回リトライ後も失敗: {}", max_retries, e);
-                    return None;
+                    warn!(
+                        "プライマリ({})が{}回失敗。フォールバック({})を試行: {}",
+                        primary_model, max_retries, fallback_model, e
+                    );
+                    break;
                 }
                 let wait = 60 * (attempt + 1) as u64;
                 warn!(
-                    "APIエラー (リトライ {}/{}): {} - {}秒待機",
-                    attempt + 1,
-                    max_retries,
-                    e,
-                    wait
+                    "[{}] リトライ {}/{}: {} - {}秒待機",
+                    primary_model, attempt + 1, max_retries, e, wait
                 );
                 tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
             }
         }
     }
-    None
+
+    // フォールバックモデルで1回試行
+    match utils::request_gemini_api(
+        key.to_string(),
+        fallback_model.to_string(),
+        prompt,
+        Some(system_instruction),
+    )
+    .await
+    {
+        Ok(text) => {
+            info!("フォールバック({})で成功", fallback_model);
+            Some((text, fallback_model.to_string()))
+        }
+        Err(e) => {
+            error!("プライマリ・フォールバック両方失敗: {}", e);
+            None
+        }
+    }
 }

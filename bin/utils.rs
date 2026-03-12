@@ -60,6 +60,10 @@ pub struct Question {
     pub sentence: String,
     pub prerequisites: Option<String>,
     pub sub_questions: Vec<SubQuestion>,
+
+    /// 生成に使用したAIモデル名（品質追跡用）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generated_by: Option<String>,
 }
 
 // QuestionのDeserializeトレイトの実装を拡張
@@ -81,6 +85,8 @@ impl<'de> Deserialize<'de> for Question {
             sentence: String,
             prerequisites: Option<String>,
             sub_questions: Vec<SubQuestion>,
+            #[serde(default)]
+            generated_by: Option<String>,
         }
 
         #[derive(Deserialize)]
@@ -107,6 +113,7 @@ impl<'de> Deserialize<'de> for Question {
             sentence: helper.sentence,
             prerequisites: helper.prerequisites,
             sub_questions: helper.sub_questions,
+            generated_by: helper.generated_by,
         })
     }
 }
@@ -316,27 +323,23 @@ pub fn replace_level(text: &str, target_level: &str) -> String {
 // Gemini API
 // ---------------------------------------------------------------------------
 
+/// APIキーとモデル名を取得（プライマリ, フォールバック）
+#[allow(unused)]
+pub fn get_key_and_models() -> (String, String, String) {
+    let key = env::var("GOOGLE_GEMINI_API_KEY").expect("GOOGLE_GEMINI_API_KEY not set");
+    let models_str = env::var("GEMINI_MODELS").expect("GEMINI_MODELS not set");
+    let models: Vec<&str> = models_str.split(',').collect();
+    if models.len() < 2 {
+        panic!("GEMINI_MODELS must have at least 2 models (primary,fallback)");
+    }
+    (key, models[0].trim().to_string(), models[1].trim().to_string())
+}
+
+/// 後方互換: 旧APIとの互換性
 #[allow(unused)]
 pub fn get_key_and_model() -> (String, String) {
-    let key = match env::var("GOOGLE_GEMINI_API_KEY") {
-        Ok(k) => k,
-        Err(_) => {
-            panic!("GOOGLE_GEMINI_API_KEY not set");
-        }
-    };
-    let models = match env::var("GEMINI_MODELS") {
-        Ok(m) => m,
-        Err(_) => {
-            panic!("GEMINI_MODELS not set");
-        }
-    };
-    let models = models.split(",").collect::<Vec<&str>>();
-    if models.len() != 2 {
-        panic!("GEMINI_MODELS must be 2 models");
-    }
-    let model = models[0];
-
-    (key, model.to_string())
+    let (key, primary, _) = get_key_and_models();
+    (key, primary)
 }
 
 /// Send a request to the Gemini API with generation config and optional system instruction.

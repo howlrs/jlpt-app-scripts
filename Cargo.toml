@@ -56,6 +56,16 @@ path = "bin/99_questions_to_database.rs"
 name = "categories_to_database"
 path = "bin/99_categories_to_database.rs"
 
+# 旧データ削除→新データ投入
+[[bin]]
+name = "clear_and_replace"
+path = "bin/99_clear_and_replace.rs"
+
+# DB状態確認ユーティリティ
+[[bin]]
+name = "check_db"
+path = "bin/check_db.rs"
+
 [dependencies]
 chrono = "0.4.40"
 env_logger = "0.11.6"
@@ -68,3 +78,5 @@ tokio = { version = "1.43.0", features = ["full"] }
 firestore = "0.44"
 dotenv = "0.15.0"
 uuid = { version = "1.15.1", features = ["v4"] }
+tokio-stream = "0.1"
+futures-util = "0.3"
