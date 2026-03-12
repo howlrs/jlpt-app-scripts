@@ -18,6 +18,12 @@ path = "bin/0_create_questions.rs"
 name = "json_read_to_struct"
 path = "bin/1_json_read_to_struct.rs"
 
+# AI生成データのバリデーション (stage 1.5)
+# 各Questionの選択肢数、回答範囲、必須フィールド等を検証
+[[bin]]
+name = "validate_questions"
+path = "bin/1_5_validate_questions.rs"
+
 # SubQuestionのsentenceをキーにした重複排除
 # Questionの新配列と重複の配列を保持
 # 保存は任意
@@ -39,11 +45,6 @@ path = "bin/4_leveling.rs"
 [[bin]]
 name = "to_meta"
 path = "bin/5_categories_to_meta.rs"
-
-# 不足パラメータを補う処理
-[[bin]]
-name = "add_params"
-path = "bin/6_add_params.rs"
 
 # データベースへの保存
 [[bin]]
