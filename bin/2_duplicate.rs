@@ -4,18 +4,13 @@ use log::{info, warn};
 
 mod utils;
 use crate::utils::{
-    read_questions_from_stage, write_questions_to_stage,
-    Question, LEVELS, STAGE_1_5_VALIDATED, STAGE_2_OUTPUT,
+    read_questions_from_stage, write_questions_to_stage, Question, LEVELS, STAGE_1_5_VALIDATED,
+    STAGE_2_OUTPUT,
 };
 
-/// Read validated questions, deduplicate at the SubQuestion level.
-///
-/// CRITICAL FIX: The old logic marked an entire Question as duplicate if ANY
-/// SubQuestion sentence had been seen before. The new logic instead:
-///   1. Tracks seen SubQuestion sentences in a HashSet
-///   2. For each Question, filters out only the duplicate SubQuestions
-///   3. If a Question has 0 remaining SubQuestions after filtering, discards it
-///   4. Keeps Questions that still have valid SubQuestions
+/// 類似度の閾値（0.0〜1.0）。この値以上の類似度を持つ文は重複とみなす。
+const SIMILARITY_THRESHOLD: f64 = 0.85;
+
 fn main() {
     crate::utils::init_logger();
 
@@ -25,44 +20,60 @@ fn main() {
         let questions = match read_questions_from_stage(level, STAGE_1_5_VALIDATED) {
             Ok(q) => q,
             Err(e) => {
-                warn!("level {}: {}", level, e);
+                warn!("[{}] {}", level, e);
                 continue;
             }
         };
 
         if questions.is_empty() {
-            warn!("level {}: no questions found, skipping", level);
+            warn!("[{}] 問題データなし、スキップ", level);
             continue;
         }
 
         let original_count = questions.len();
         let original_sub_count: usize = questions.iter().map(|q| q.sub_questions.len()).sum();
 
-        // Track seen SubQuestion sentences
-        let mut seen_sentences: HashSet<String> = HashSet::new();
+        let mut seen_sentences: Vec<String> = Vec::new();
         let mut deduplicated: Vec<Question> = Vec::new();
-        let mut removed_sub_count: usize = 0;
+        let mut removed_exact = 0usize;
+        let mut removed_similar = 0usize;
 
         for question in questions {
-            // Filter SubQuestions: keep only those with unseen sentences
             let mut kept_subs = Vec::new();
             for sub_q in question.sub_questions {
-                let key = sub_q
+                let sentence = sub_q
                     .sentence
                     .as_deref()
                     .unwrap_or("")
                     .trim()
                     .to_string();
 
-                if key.is_empty() || seen_sentences.insert(key) {
-                    // Empty sentence or first time seeing this sentence -> keep it
+                if sentence.is_empty() {
                     kept_subs.push(sub_q);
-                } else {
-                    removed_sub_count += 1;
+                    continue;
                 }
+
+                // 完全一致チェック
+                if seen_sentences.iter().any(|s| s == &sentence) {
+                    removed_exact += 1;
+                    continue;
+                }
+
+                // 類似度チェック（既存文との最大類似度を計算）
+                let is_similar = seen_sentences.iter().any(|existing| {
+                    let sim = normalized_similarity(&sentence, existing);
+                    sim >= SIMILARITY_THRESHOLD
+                });
+
+                if is_similar {
+                    removed_similar += 1;
+                    continue;
+                }
+
+                seen_sentences.push(sentence);
+                kept_subs.push(sub_q);
             }
 
-            // Discard the Question entirely if no SubQuestions remain
             if kept_subs.is_empty() {
                 continue;
             }
@@ -73,21 +84,62 @@ fn main() {
             });
         }
 
+        let remaining_sub: usize = deduplicated.iter().map(|q| q.sub_questions.len()).sum();
         info!(
-            "level {}: questions {} -> {}, sub_questions {} -> {} (removed {} duplicate subs)",
+            "[{}] questions: {} → {}, sub_questions: {} → {} (完全一致除外={}, 類似除外={})",
             level,
             original_count,
             deduplicated.len(),
             original_sub_count,
-            original_sub_count - removed_sub_count,
-            removed_sub_count,
+            remaining_sub,
+            removed_exact,
+            removed_similar,
         );
 
         match write_questions_to_stage(level, STAGE_2_OUTPUT, &deduplicated) {
-            Ok(_) => info!("level {}: wrote {}", level, STAGE_2_OUTPUT),
-            Err(e) => warn!("level {}: failed to write: {}", level, e),
+            Ok(_) => info!("[{}] wrote {}", level, STAGE_2_OUTPUT),
+            Err(e) => warn!("[{}] 書込失敗: {}", level, e),
         }
     }
 
     info!("done, elapsed: {:?}", start.elapsed());
+}
+
+/// 2つの文字列の正規化類似度を計算（0.0〜1.0、1.0が完全一致）
+/// Levenshtein距離ベース
+fn normalized_similarity(a: &str, b: &str) -> f64 {
+    let a_chars: Vec<char> = a.chars().collect();
+    let b_chars: Vec<char> = b.chars().collect();
+    let max_len = a_chars.len().max(b_chars.len());
+    if max_len == 0 {
+        return 1.0;
+    }
+    let dist = levenshtein_distance(&a_chars, &b_chars);
+    1.0 - (dist as f64 / max_len as f64)
+}
+
+/// Levenshtein距離をDP法で計算
+fn levenshtein_distance(a: &[char], b: &[char]) -> usize {
+    let (m, n) = (a.len(), b.len());
+
+    // 短い方の文字列+1のサイズだけメモリ使用（省メモリ版）
+    let mut prev = vec![0usize; n + 1];
+    let mut curr = vec![0usize; n + 1];
+
+    for j in 0..=n {
+        prev[j] = j;
+    }
+
+    for i in 1..=m {
+        curr[0] = i;
+        for j in 1..=n {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            curr[j] = (prev[j] + 1) // 削除
+                .min(curr[j - 1] + 1) // 挿入
+                .min(prev[j - 1] + cost); // 置換
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+
+    prev[n]
 }
