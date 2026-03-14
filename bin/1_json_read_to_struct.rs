@@ -28,6 +28,16 @@ fn main() {
 
         let mut all_questions = vec![];
         for file in walk_dir(&target_level_dir) {
+            // ステージ出力ファイル除外: ファイル名(拡張子除く)が全て数字(=タイムスタンプ)のもののみ対象
+            let is_raw = file
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| s.chars().all(|c| c.is_ascii_digit()))
+                .unwrap_or(false);
+            if !is_raw {
+                continue;
+            }
+
             let read_content = read_file(file.clone());
             let cleaned_content = remove_ai_json_syntax(&read_content);
 
