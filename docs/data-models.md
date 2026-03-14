@@ -94,3 +94,33 @@ struct CatValue {
 
 カテゴリメタデータ。`CatValue` を格納。
 ドキュメントIDは自動生成UUID v4。
+
+### `categories` コレクション
+
+カテゴリ別の問題数（reten）付きメタデータ。
+ドキュメントIDは `{level_id}_{category_id}`（例: `1_8`）。
+
+```rust
+struct CategoryWithReten {
+    level_id: u32,   // レベルID (1-5)
+    id: String,      // カテゴリID
+    name: String,    // カテゴリ名
+    reten: u32,      // 子問題数（sub_question合計）
+}
+```
+
+### `levels` コレクション
+
+レベルマスタ。ドキュメントIDは `{id}`（1〜5）。
+
+```json
+{ "id": 1, "name": "N1" }
+```
+
+### `votes` コレクション
+
+ユーザーの問題評価データ。
+
+### `users` コレクション
+
+ユーザーデータ（JWT認証）。

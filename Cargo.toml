@@ -13,6 +13,11 @@ path = "bin/00_template.rs"
 name = "create_questions"
 path = "bin/0_create_questions.rs"
 
+# ポジショニングマップ方式: ギャップカテゴリのみターゲット生成
+[[bin]]
+name = "create_targeted"
+path = "bin/0_create_targeted.rs"
+
 # AI生成データを型にバインドして保存する
 [[bin]]
 name = "json_read_to_struct"
