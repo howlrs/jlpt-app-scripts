@@ -219,6 +219,40 @@ DRY_RUN=true cargo run --bin clear_and_replace   # 置換プレビュー
 DRY_RUN=false cargo run --bin clear_and_replace  # 実際に置換実行
 ```
 
+## 品質監視 (monitor_quality)
+
+バックエンド側（jlpt-app-backend）に実装された品質監視エンドポイント。
+
+**エンドポイント:** `POST /api/admin/monitor-quality`
+
+**認証:** Admin JWT または `X-Scheduler-Secret` ヘッダ
+
+**パラメータ:**
+
+| パラメータ | デフォルト | 説明 |
+|-----------|----------|------|
+| `execute` | false | trueで問題を実削除 |
+| `level` | 全レベル | 特定レベルのみ対象（例: n3） |
+| `threshold` | 0.85 | Levenshtein類似度の閾値 |
+
+**検出項目:**
+
+| 検出種別 | 内容 |
+|---------|------|
+| 完全一致重複 | sentence+正解値の複合キーが一致 |
+| 類似重複 | Levenshtein類似度 ≥ 85% |
+| 空括弧 | （　　）（）等が問題文に含まれる |
+| 選択肢数異常 | select_answerが4つでない |
+| 正解キー不在 | answerの値がselect_answerのkeyに存在しない |
+| 空選択肢 | 選択肢のvalueが空 |
+| 空問題文 | sentenceが空 |
+
+**定期実行:** Cloud Scheduler `monitor-quality-weekly` — 毎週月曜 AM3:00 (JST)
+
+**通知:** Discord Webhook（Embed形式）
+
+---
+
 ## 出力ファイル一覧
 
 各レベルディレクトリ（`output/questions/{level}/`）配下：
