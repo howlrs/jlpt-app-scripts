@@ -45,6 +45,32 @@
 
 ---
 
+### Script 0t: `create_targeted` (0_create_targeted.rs)
+
+**機能:** ポジショニングマップ方式によるギャップカテゴリのターゲット生成
+
+**処理内容:**
+1. 既存パイプライン出力（4_leveling_data.json）を分析
+2. 各カテゴリの子問題数が `TARGET_MIN`（デフォルト: 100）未満のギャップを検出
+3. ギャップカテゴリのみ集中的にGemini APIで問題生成
+4. `BUFFER_RATIO`（デフォルト: 1.5）でdedup/validation減衰を見込んだバッファ倍率を適用
+
+**環境変数:**
+
+| 変数 | デフォルト | 説明 |
+|------|----------|------|
+| `TARGET_MIN` | 100 | 各カテゴリの最小子問題数 |
+| `REQUEST_INTERVAL` | 10 | APIリクエスト間隔（秒） |
+| `BUFFER_RATIO` | 1.5 | 減衰見込みバッファ倍率 |
+
+**使用方法:**
+
+```bash
+cargo run --bin create_targeted
+```
+
+---
+
 ### Script 1: `json_read_to_struct` (1_json_read_to_struct.rs)
 
 **機能:** 生成JSONの構造体パース
