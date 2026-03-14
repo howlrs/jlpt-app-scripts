@@ -5,9 +5,9 @@ use log::{error, info, warn};
 mod utils;
 
 /// カテゴリ別の目標問題数（各カテゴリ定義の問題数 × 倍率）
-const TARGET_MULTIPLIER: u32 = 10;
+const TARGET_MULTIPLIER: u32 = 50;
 /// カテゴリ別の最小問題数
-const MIN_PER_CATEGORY: u32 = 30;
+const MIN_PER_CATEGORY: u32 = 150;
 
 #[tokio::main]
 async fn main() {
