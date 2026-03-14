@@ -102,8 +102,25 @@ fn validate_question(question: &Question) -> Vec<String> {
         reasons.push("category_name is empty".to_string());
     }
 
+    // category_id別チェック: 漢字読み(2)・表記(3)で空括弧はNG
+    let cat_id_num = question.category_id.as_deref().unwrap_or("0")
+        .parse::<u32>().unwrap_or(0);
+
     for (i, sub_q) in question.sub_questions.iter().enumerate() {
         let sub_label = format!("sub_question[{}]", i);
+
+        // 漢字読み・表記カテゴリで空括弧チェック
+        if cat_id_num == 2 || cat_id_num == 3 {
+            let sent = sub_q.sentence.as_deref().unwrap_or("");
+            if sent.contains("（　　）") || sent.contains("（）")
+                || sent.contains("（  ）") || sent.contains("（ ）")
+            {
+                reasons.push(format!(
+                    "{}: empty parentheses in kanji reading/notation category",
+                    sub_label
+                ));
+            }
+        }
 
         // select_answer count: each SubQuestion must have exactly 4 options
         if sub_q.select_answer.len() != 4 {
