@@ -1,6 +1,7 @@
 use std::{collections::HashMap, env, time::Instant};
 
 use log::{error, info, warn};
+use rand::Rng;
 
 mod utils;
 
@@ -81,9 +82,11 @@ async fn main() {
             );
 
             for i in 0..requests_needed {
+                // 乱数シードで問題の多様性を確保
+                let seed: u32 = rand::random();
                 let category_prompt = format!(
-                    "{}\n\n**今回は以下のカテゴリの問題のみを生成してください:**\nカテゴリ: {}\n5問以上生成してください。他のカテゴリの問題は生成しないでください。",
-                    prompt_base, cat_name
+                    "{}\n\n**今回は以下のカテゴリの問題のみを生成してください:**\nカテゴリ: {}\n5問以上生成してください。他のカテゴリの問題は生成しないでください。\n\n**多様性指示（シード: {}）:**\n- 前回と異なるテーマ・場面・語彙を使用すること\n- 同じ文型・表現パターンの繰り返しを避けること\n- 問題の正解が偏らないよう、正解位置を1〜4で均等に分散させること",
+                    prompt_base, cat_name, seed
                 );
 
                 let result = request_with_fallback(
