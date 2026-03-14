@@ -158,14 +158,36 @@
 
 ---
 
+### Script: `review_votes` (review_votes.rs)
+
+**機能:** 投票データの集計・低品質問題のリスト化・削除
+
+**処理内容:**
+1. Firestoreの `votes` コレクションを全件取得
+2. 問題ごとのgood/bad件数を集計
+3. bad率が閾値（デフォルト60%）以上の問題をリスト化し、`output/bad_questions.json` に保存
+4. `--delete` オプション指定時、該当問題をFirestoreから削除
+
+**使用方法:**
+
+```bash
+cargo run --bin review_votes                          # 集計のみ
+cargo run --bin review_votes -- --delete              # 集計 + 削除実行
+BAD_THRESHOLD=0.5 cargo run --bin review_votes        # 閾値変更（デフォルト: 0.6）
+```
+
+---
+
 ### Script: `clear_and_replace`
 
-**機能:** Firestoreデータの全削除・再投入
+**機能:** Firestoreデータの全削除・再投入（levels/categories自動投入対応）
 
 **処理内容:**
 1. `DRY_RUN` 環境変数で安全確認（デフォルト: true）
 2. DRY_RUN=true の場合、削除・投入の対象件数のみ表示
 3. DRY_RUN=false の場合、既存データを全削除後、パイプライン出力データを再投入
+4. levelsコレクション（N1〜N5）を自動投入
+5. categoriesコレクションにreten（問題数）付きで自動投入
 
 ## 実行方法
 

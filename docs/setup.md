@@ -80,10 +80,24 @@ cargo run --bin categories_to_database
 cargo run --bin check_db
 
 # 置換プレビュー（削除・投入の対象件数のみ表示）
+# ※ levels/categoriesコレクションも自動で投入されます
 DRY_RUN=true cargo run --bin clear_and_replace
 
-# 実際にDB全削除→再投入
+# 実際にDB全削除→再投入（levels, categories, categories_raw, questionsを一括管理）
 DRY_RUN=false cargo run --bin clear_and_replace
+```
+
+### 投票データレビュー
+
+```bash
+# 投票集計のみ（bad率60%以上の問題をリスト化）
+cargo run --bin review_votes
+
+# 集計 + 低品質問題をFirestoreから削除
+cargo run --bin review_votes -- --delete
+
+# 閾値を変更して実行（デフォルト: 0.6）
+BAD_THRESHOLD=0.5 cargo run --bin review_votes
 ```
 
 ## 出力ディレクトリ
