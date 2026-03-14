@@ -24,6 +24,11 @@ path = "bin/1_json_read_to_struct.rs"
 name = "validate_questions"
 path = "bin/1_5_validate_questions.rs"
 
+# 選択肢シャッフル（正解位置の偏り修正）
+[[bin]]
+name = "shuffle_answers"
+path = "bin/1_7_shuffle_answers.rs"
+
 # SubQuestionのsentenceをキーにした重複排除
 # Questionの新配列と重複の配列を保持
 # 保存は任意
@@ -78,5 +83,6 @@ tokio = { version = "1.43.0", features = ["full"] }
 firestore = "0.44"
 dotenv = "0.15.0"
 uuid = { version = "1.15.1", features = ["v4"] }
+rand = "0.9"
 tokio-stream = "0.1"
 futures-util = "0.3"

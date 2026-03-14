@@ -4,7 +4,7 @@ use log::{info, warn};
 
 mod utils;
 use crate::utils::{
-    read_questions_from_stage, write_questions_to_stage, Question, LEVELS, STAGE_1_5_VALIDATED,
+    read_questions_from_stage, write_questions_to_stage, Question, LEVELS,
     STAGE_2_OUTPUT,
 };
 
@@ -17,7 +17,9 @@ fn main() {
     let start = std::time::Instant::now();
 
     for level in LEVELS {
-        let questions = match read_questions_from_stage(level, STAGE_1_5_VALIDATED) {
+        // シャッフル済みファイルを優先、なければバリデーション済みを使用
+        let input_file = "1_7_shuffled.json";
+        let questions = match read_questions_from_stage(level, input_file) {
             Ok(q) => q,
             Err(e) => {
                 warn!("[{}] {}", level, e);
@@ -48,20 +50,31 @@ fn main() {
                     .trim()
                     .to_string();
 
-                if sentence.is_empty() {
+                // 正解の値を取得して複合キーを構成
+                let correct_value = sub_q
+                    .select_answer
+                    .iter()
+                    .find(|sa| sa.key == sub_q.answer)
+                    .map(|sa| sa.value.trim().to_string())
+                    .unwrap_or_default();
+                let dedup_key = format!("{}||{}", sentence, correct_value);
+
+                if sentence.is_empty() && correct_value.is_empty() {
                     kept_subs.push(sub_q);
                     continue;
                 }
 
-                // 完全一致チェック
-                if seen_sentences.iter().any(|s| s == &sentence) {
+                // 完全一致チェック（問題文+正解値のペア）
+                if seen_sentences.iter().any(|s| s == &dedup_key) {
                     removed_exact += 1;
                     continue;
                 }
 
-                // 類似度チェック（既存文との最大類似度を計算）
-                let is_similar = seen_sentences.iter().any(|existing| {
-                    let sim = normalized_similarity(&sentence, existing);
+                // 類似度チェック（問題文部分のみで比較）
+                let is_similar = !sentence.is_empty() && seen_sentences.iter().any(|existing| {
+                    // 既存キーから問題文部分を抽出
+                    let existing_sentence = existing.split("||").next().unwrap_or("");
+                    let sim = normalized_similarity(&sentence, existing_sentence);
                     sim >= SIMILARITY_THRESHOLD
                 });
 
@@ -70,7 +83,7 @@ fn main() {
                     continue;
                 }
 
-                seen_sentences.push(sentence);
+                seen_sentences.push(dedup_key);
                 kept_subs.push(sub_q);
             }
 

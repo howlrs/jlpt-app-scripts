@@ -75,6 +75,14 @@ STAGE_END=$(date +%s)
 echo "[Stage 1.5] 完了 ($((STAGE_END - STAGE_START))秒)"
 echo ""
 
+# ===== Stage 1.7: 選択肢シャッフル =====
+echo "[Stage 1.7] 選択肢シャッフル（正解位置の偏り修正）→ 1_7_shuffled.json"
+STAGE_START=$(date +%s)
+./target/release/shuffle_answers
+STAGE_END=$(date +%s)
+echo "[Stage 1.7] 完了 ($((STAGE_END - STAGE_START))秒)"
+echo ""
+
 # ===== Stage 2: 重複排除 =====
 echo "[Stage 2] 重複排除（類似度85%） → 2_deduplicated.json"
 STAGE_START=$(date +%s)
