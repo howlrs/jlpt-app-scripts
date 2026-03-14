@@ -114,15 +114,61 @@ fn identify_gaps(target_min: u32) -> Vec<Gap> {
     gaps
 }
 
-fn category_hints(cat_name: &str) -> &'static str {
+/// 文章の文法（cat_10）用テーマバリエーション
+/// dedupで弾かれにくいよう、テーマ・文法ポイント・文体を細かく指定
+const CAT_10_THEMES: &[&str] = &[
+    r#"
+**テーマ: 接続詞・逆接表現**
+- 文章ジャンル: 新聞社説、コラム
+- 空欄に入るもの: 逆接の接続詞（しかし/ところが/にもかかわらず/とはいえ/それにしても）
+- 文章の論点が転換する箇所に空欄を設置
+- 前後の論理関係から適切な逆接表現を選ばせる"#,
+    r#"
+**テーマ: 順接・因果関係の接続表現**
+- 文章ジャンル: 学術論文の抜粋、研究報告
+- 空欄に入るもの: 因果の接続表現（したがって/それゆえ/そのため/その結果/こうして）
+- 原因→結果の流れの中に空欄を設置
+- 論理の必然性を理解しないと解けない構成にする"#,
+    r#"
+**テーマ: 指示語・照応表現**
+- 文章ジャンル: エッセイ、随筆
+- 空欄に入るもの: 指示語（これ/それ/あれ/この/その/こうした/そうした/このような）
+- 指示語が何を指しているか、前後の文脈から判断させる
+- 近称・中称の使い分けがポイントとなる問題にする"#,
+    r#"
+**テーマ: 文末表現・モダリティ**
+- 文章ジャンル: ビジネスメール、公式通知文
+- 空欄に入るもの: 文末表現（〜ざるを得ない/〜かねない/〜に違いない/〜べきである/〜わけではない）
+- 書き手の判断・態度を表す表現の使い分け
+- 丁寧体・常体の文体統一も考慮した問題にする"#,
+    r#"
+**テーマ: 添加・並列の接続表現**
+- 文章ジャンル: 案内文、説明書、ガイドブック
+- 空欄に入るもの: 添加表現（また/さらに/そのうえ/加えて/しかも/それに）
+- 情報が積み重なる文脈での適切な接続詞選択
+- 類似表現の微妙なニュアンス差を問う"#,
+    r#"
+**テーマ: 条件・仮定の表現**
+- 文章ジャンル: 法律文、規約、契約書の抜粋
+- 空欄に入るもの: 条件表現（〜場合/〜限り/〜としても/〜ない限り/〜次第で）
+- 条件節と帰結節の論理的整合性を問う
+- フォーマルな書き言葉特有の条件表現を使用"#,
+    r#"
+**テーマ: 譲歩・対比の表現**
+- 文章ジャンル: 討論記事、書評、比較レポート
+- 空欄に入るもの: 譲歩表現（〜ものの/〜とはいうものの/〜にせよ/一方で/他方）
+- 対立する二つの立場を提示し、譲歩の構文を問う
+- 「確かに〜、しかし〜」型の論理展開を活用"#,
+];
+
+fn category_hints(cat_name: &str, theme_index: Option<usize>) -> &'static str {
     match cat_name {
-        "文章の文法" => r#"
-**文章の文法の問題作成ガイド:**
-- 200〜300字程度の短い文章を提示し、文中の空欄に入る適切な接続表現・文法形式を選ばせる
-- テーマ例: ビジネスメール、新聞記事、エッセイ、学術論文の抜粋、案内文
-- 空欄に入るもの: 接続詞（しかし/ところが/それゆえ等）、接続助詞、文末表現、指示語、助詞の使い分け
-- 文章全体の論理的つながりを理解しないと解けない問題にすること
-- 単純な文法知識ではなく、文脈理解が求められる問題にすること"#,
+        "文章の文法" => {
+            match theme_index {
+                Some(idx) => CAT_10_THEMES[idx % CAT_10_THEMES.len()],
+                None => CAT_10_THEMES[0],
+            }
+        }
         "表記" => r#"
 **表記の問題作成ガイド:**
 - 下線部のひらがなを漢字で書くとき、正しいものを選ぶ形式
@@ -157,9 +203,16 @@ fn category_hints(cat_name: &str) -> &'static str {
     }
 }
 
+fn theme_count_for(cat_name: &str) -> usize {
+    match cat_name {
+        "文章の文法" => CAT_10_THEMES.len(),
+        _ => 1,
+    }
+}
+
 /// カテゴリ特化の高品質プロンプトを構築
-fn build_targeted_prompt(level_upper: &str, level_lower: &str, cat_name: &str, cat_id: u32, anti_dup: &str) -> String {
-    let hints = category_hints(cat_name);
+fn build_targeted_prompt(level_upper: &str, level_lower: &str, cat_name: &str, cat_id: u32, anti_dup: &str, theme_index: usize) -> String {
+    let hints = category_hints(cat_name, Some(theme_index));
     let seed: u32 = rand::random();
 
     format!(
@@ -299,9 +352,12 @@ async fn main() {
             continue;
         }
 
+        let num_themes = theme_count_for(gap.cat_name);
+
         for i in 0..requests_needed {
+            let theme_index = i as usize % num_themes;
             let prompt = build_targeted_prompt(
-                &level_upper, &level_lower, gap.cat_name, gap.cat_id, &anti_dup
+                &level_upper, &level_lower, gap.cat_name, gap.cat_id, &anti_dup, theme_index
             );
 
             let result = utils::request_with_fallback(

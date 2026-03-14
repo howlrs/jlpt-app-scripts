@@ -21,6 +21,13 @@ use serde::{Deserialize, Serialize};
 
 mod utils;
 
+/// Firestoreドキュメント削除用: _firestore_id でドキュメントIDを取得
+#[derive(Deserialize)]
+struct DocSnapshot {
+    #[serde(alias = "_firestore_id")]
+    doc_id: String,
+}
+
 #[tokio::main]
 async fn main() {
     dotenv::dotenv().ok();
@@ -216,7 +223,7 @@ async fn delete_collection(
         .fluent()
         .list()
         .from(collection)
-        .obj::<serde_json::Value>()
+        .obj::<DocSnapshot>()
         .stream_all_with_errors()
         .await;
 
@@ -234,11 +241,7 @@ async fn delete_collection(
     while let Some(item) = stream.next().await {
         match item {
             Ok(doc) => {
-                if let Some(id) = doc.get("id").and_then(|v| v.as_str()) {
-                    doc_ids.push(id.to_string());
-                } else if let Some(id) = doc.get("_firestore_id").and_then(|v| v.as_str()) {
-                    doc_ids.push(id.to_string());
-                }
+                doc_ids.push(doc.doc_id);
                 count += 1;
             }
             Err(e) => warn!("ドキュメント読取エラー: {}", e),
