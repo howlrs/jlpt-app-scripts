@@ -510,3 +510,63 @@ where
 
     err_values
 }
+
+// ---------------------------------------------------------------------------
+// Gemini API helpers (shared across binaries)
+// ---------------------------------------------------------------------------
+
+/// システム指示文（問題生成用）
+#[allow(unused)]
+pub const SYSTEM_INSTRUCTION: &str = r#"あなたはJLPT（日本語能力試験）の公式問題作成の専門家です。以下を厳守してください：
+1. 出力は必ず有効なJSONのみ（マークダウン記法禁止、説明文禁止）
+2. 選択肢は必ず4つ。正解は必ず1つだけ
+3. 正解の位置（1〜4）を偏らせない
+4. 誤答は「一見正しそうだが明確な理由で不正解」であること
+5. 選択肢の長さ・構造・語彙レベルを揃えること
+6. 指定されたレベルの語彙・文法範囲を厳守すること
+7. 指定されたカテゴリの問題のみを生成すること"#;
+
+/// フォールバックモデル付きリトライでGemini APIにリクエスト
+#[allow(unused)]
+pub async fn request_with_fallback(
+    key: &str,
+    primary_model: &str,
+    fallback_model: &str,
+    prompt: &str,
+    system_instruction: &str,
+    max_retries: u32,
+) -> Option<(String, String)> {
+    for attempt in 0..=max_retries {
+        match request_gemini_api(
+            key.to_string(), primary_model.to_string(),
+            prompt, Some(system_instruction),
+        ).await {
+            Ok(text) => return Some((text, primary_model.to_string())),
+            Err(e) => {
+                if attempt >= max_retries {
+                    log::warn!("プライマリ({})が{}回失敗。フォールバック試行: {}",
+                        primary_model, max_retries, e);
+                    break;
+                }
+                let wait = 60 * (attempt + 1) as u64;
+                log::warn!("[{}] リトライ {}/{}: {} - {}秒待機",
+                    primary_model, attempt + 1, max_retries, e, wait);
+                tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+            }
+        }
+    }
+
+    match request_gemini_api(
+        key.to_string(), fallback_model.to_string(),
+        prompt, Some(system_instruction),
+    ).await {
+        Ok(text) => {
+            info!("フォールバック({})で成功", fallback_model);
+            Some((text, fallback_model.to_string()))
+        }
+        Err(e) => {
+            error!("プライマリ・フォールバック両方失敗: {}", e);
+            None
+        }
+    }
+}
