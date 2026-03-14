@@ -66,6 +66,11 @@ path = "bin/99_categories_to_database.rs"
 name = "clear_and_replace"
 path = "bin/99_clear_and_replace.rs"
 
+# 投票データ集計・低品質問題リスト化・削除
+[[bin]]
+name = "review_votes"
+path = "bin/review_votes.rs"
+
 # DB状態確認ユーティリティ
 [[bin]]
 name = "check_db"
