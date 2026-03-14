@@ -1,6 +1,6 @@
 # DB内問題品質監視スクリプト (monitor_quality) 実装計画
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **Status: CLOSED (2026-03-15)** — バックエンド API `POST /api/admin/monitor-quality` で同等機能を実装済み。CLI版は不要と判断。
 
 **Goal:** Firestoreに保存済みの問題に対して重複・類似検出→削除→品質レポート出力を行う `monitor_quality` バイナリを実装する（MVP: Step 1）
 
