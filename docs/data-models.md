@@ -11,9 +11,9 @@ struct Question {
     level_name: String,               // "n1"〜"n5"（AI生成時に設定）
     category_id: Option<String>,      // カテゴリ識別子
     category_name: String,            // カテゴリ名（"文法", "語彙" 等）
-    chapter: String,                  // 章・セクション
     sentence: String,                 // 大問の問題文
     prerequisites: Option<String>,    // 前提条件・コンテキスト
+    generated_by: Option<String>,     // 生成に使用したGeminiモデル名
     sub_questions: Vec<SubQuestion>,  // 小問リスト
 }
 ```
@@ -23,13 +23,10 @@ struct Question {
 ```rust
 struct SubQuestion {
     id: u32,                          // 連番（Script 3で採番）
-    hint_id: u32,                     // ヒント参照ID（デフォルト: 0）
-    answer_id: u32,                   // 回答参照ID（デフォルト: 0）
     sentence: Option<String>,         // 小問文
     prerequisites: Option<String>,    // 小問の前提条件
     select_answer: Vec<SelectAnswer>, // 選択肢（4択）
     answer: String,                   // 正解（"1"〜"4"）
-    voted: Option<i32>,               // ユーザー評価（オプション）
 }
 ```
 
@@ -41,6 +38,8 @@ struct SelectAnswer {
     value: String,  // 選択肢テキスト
 }
 ```
+
+**備考:** SelectAnswerはHashMapではなく、`key` と `value` フィールドを持つ構造体として定義されている。
 
 ### CatValue（カテゴリメタデータ）
 
@@ -59,15 +58,20 @@ struct CatValue {
   ├── id: なし
   ├── level_id: 0
   ├── level_name: "n3"
+  ├── generated_by: "gemini-2.0-flash"
   └── sub_questions[].id: 0
          │
-         ▼ Script 1: パース
-[構造化 JSON]
+         ▼ Script 1: パース → 1_parsed.json
+[パース済み JSON]
   └── Rustの型に適合
          │
-         ▼ Script 2: 重複排除
+         ▼ Script 1.5: バリデーション → 1_5_validated.json
+[検証済み JSON]
+  └── 必須フィールド確認済み
+         │
+         ▼ Script 2: 類似排除 → 2_deduplicated.json
 [ユニーク JSON]
-  └── SubQuestion.sentence 単位で重複除去
+  └── SubQuestion.sentence 間のLevenshtein距離85%閾値で類似排除
          │
          ▼ Script 3: ID採番
 [採番済み JSON]

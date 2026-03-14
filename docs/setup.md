@@ -5,6 +5,7 @@
 - Rust (Edition 2024 対応版)
 - Google Gemini API キー
 - Google Cloud プロジェクト（Firestore有効化済み）
+- DB操作スクリプト使用時: `gcloud auth application-default login` による認証
 
 ## 環境変数
 
@@ -13,8 +14,11 @@
 | 変数名 | 必須 | 説明 |
 |--------|------|------|
 | `GOOGLE_GEMINI_API_KEY` | Yes | Google Gemini API の認証キー |
-| `GEMINI_MODELS` | Yes | 使用するGeminiモデル名（カンマ区切り、2つ指定） |
+| `GEMINI_MODELS` | Yes | 使用するGeminiモデル名（カンマ区切り、2つ指定。1つ目がプライマリ、2つ目がフォールバック） |
 | `PROJECT_ID` | Yes | Google Cloud プロジェクトID（Firestore用） |
+| `GENERATE_COUNT` | No | レベル×カテゴリあたりの生成リクエスト数 |
+| `REQUEST_INTERVAL` | No | APIリクエスト間隔（秒） |
+| `DRY_RUN` | No | clear_and_replace用。trueでプレビューのみ（デフォルト: true） |
 | `RUST_LOG` | No | ログレベル（デフォルト: INFO） |
 
 ## ビルド
@@ -23,21 +27,34 @@
 cargo build --release
 ```
 
-## パイプライン実行
+## DB操作の認証
 
-順番に実行する：
+Firestore操作（check_db, clear_and_replace, questions_to_database等）を実行する前に、アプリケーションデフォルト認証を設定する：
 
 ```bash
-# 1. AI問題生成（非常に長時間かかる: 1000リクエスト × 5レベル）
+gcloud auth application-default login
+```
+
+## パイプライン実行
+
+### 一括実行（推奨）
+
+```bash
+./run_pipeline.sh
+```
+
+### 個別実行
+
+```bash
+# 1. AI問題生成（カテゴリベース、チェックポイント/リジューム対応）
 cargo run --bin create_questions
 
-# 2. ファイル結合
-cargo run --bin template
-
-# 3. JSON構造化・バリデーション
+# 2. JSONパース → 1_parsed.json
 cargo run --bin json_read_to_struct
 
-# 4. 重複排除
+# 3. バリデーション → 1_5_validated.json（パースに含まれる場合あり）
+
+# 4. 類似排除（Levenshtein距離85%閾値） → 2_deduplicated.json
 cargo run --bin duplicate
 
 # 5. ID採番
@@ -56,6 +73,19 @@ cargo run --bin questions_to_database
 cargo run --bin categories_to_database
 ```
 
+### DB確認・置換
+
+```bash
+# DB内容の確認（レベル・カテゴリごとの問題数を表示）
+cargo run --bin check_db
+
+# 置換プレビュー（削除・投入の対象件数のみ表示）
+DRY_RUN=true cargo run --bin clear_and_replace
+
+# 実際にDB全削除→再投入
+DRY_RUN=false cargo run --bin clear_and_replace
+```
+
 ## 出力ディレクトリ
 
 パイプライン実行後、以下の構造で出力される：
@@ -63,13 +93,14 @@ cargo run --bin categories_to_database
 ```
 output/questions/
 ├── n1/
-│   ├── *.json                              # API生レスポンス
-│   ├── concat_with_struct.json             # 構造化済み
-│   ├── removed_duplicate_rows_concat_all.json  # 重複除去
-│   ├── 3_numbering_data.json               # ID採番済み
-│   ├── 4_leveling_data.json                # レベル正規化
-│   ├── 5_categories_meta.json              # カテゴリメタ
-│   └── err/                                # エラーファイル
+│   ├── *.json                    # API生レスポンス
+│   ├── 1_parsed.json             # パース済み
+│   ├── 1_5_validated.json        # バリデーション済み
+│   ├── 2_deduplicated.json       # 類似排除済み
+│   ├── 3_numbering_data.json     # ID採番済み
+│   ├── 4_leveling_data.json      # レベル正規化
+│   ├── 5_categories_meta.json    # カテゴリメタ
+│   └── err/                      # エラーファイル
 ├── n2/
 ├── n3/
 ├── n4/
@@ -78,6 +109,7 @@ output/questions/
 
 ## 注意事項
 
-- Script 0（問題生成）は全レベル合計5000リクエストを送信するため、API利用料に注意
-- 20秒間隔でリクエストを送信、失敗時は120秒待機後リトライ
+- Script 0（問題生成）はカテゴリベースで全レベル・全カテゴリに対しリクエストを送信するため、API利用料に注意
+- チェックポイント機能により、中断後に再開可能（生成済みファイルはスキップ）
+- モデルフォールバック: プライマリモデル失敗時にセカンダリモデルに自動切替
 - エラーが発生したレコードは `err/` ディレクトリに保存され、後から確認可能
