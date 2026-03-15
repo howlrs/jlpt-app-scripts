@@ -1,8 +1,16 @@
 # 大規模ギャップ補充 Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **Status: COMPLETED (2026-03-15)**
 
 **Goal:** ユーザー指定の36カテゴリ・合計3,452問の不足を補充し、全カテゴリで目標値を達成する
+
+## 最終結果
+
+- DB questions: **15,259件**（開始時 11,317件 → +3,942件）
+- 生成ラウンド: 3回実施（Round1: 1,332req / Round2: 410req / Round3: 178req）
+- 追加発見・修正:
+  - `CategoryWithReten.id` の型不一致(String→u32)修正 → フロントエンドのカテゴリ表示が復旧
+  - `category_name` の表記ゆれによるカバレッジ齟齬を発見 → [jlpt-app-frontend#13](https://github.com/howlrs/jlpt-app-frontend/issues/13) に起票
 
 **Architecture:** Python版ギャップ補充スクリプト(`generate_gaps.py`)で全ギャップのrawファイルを一括生成し、既存パイプライン(`run_pipeline.sh --skip-generate`)で処理後、`clear_and_replace`でDB投入。目標値は従来のTARGET_MIN=100から、カテゴリ別に100〜300の可変目標に拡張。
 
