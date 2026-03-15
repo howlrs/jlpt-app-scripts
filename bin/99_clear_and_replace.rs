@@ -173,9 +173,10 @@ async fn main() {
 
     let mut cat_inserted = 0u32;
     for ((level_id, category_id), (category_name, reten)) in &cat_counts {
+        let cat_id_num: u32 = category_id.parse().unwrap_or(0);
         let doc = CategoryWithReten {
             level_id: *level_id,
-            id: category_id.clone(),
+            id: cat_id_num,
             name: category_name.clone(),
             reten: *reten,
         };
@@ -209,7 +210,7 @@ async fn main() {
 #[derive(Serialize, Deserialize, Debug)]
 struct CategoryWithReten {
     level_id: u32,
-    id: String,
+    id: u32,
     name: String,
     reten: u32,
 }
