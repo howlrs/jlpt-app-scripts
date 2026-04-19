@@ -115,3 +115,49 @@ fn dedup_key_empty_options_returns_answer_not_in_options() {
     let sub = SubLike { options: vec![], answer: "1".to_string() };
     assert_eq!(dedup_key(1, &sub), Err(KeySkipReason::AnswerNotInOptions));
 }
+
+use chrono::{TimeZone, Utc};
+use dedup_common::{prefer_keep_order, Candidate};
+
+#[test]
+fn prefer_keep_order_older_create_time_wins() {
+    let older = Candidate {
+        parent_id: "z".into(),
+        sub_idx: 0,
+        create_time: Utc.with_ymd_and_hms(2026, 3, 1, 0, 0, 0).unwrap(),
+        sentence_len: 10,
+    };
+    let newer = Candidate {
+        parent_id: "a".into(),
+        sub_idx: 0,
+        create_time: Utc.with_ymd_and_hms(2026, 3, 15, 0, 0, 0).unwrap(),
+        sentence_len: 100,
+    };
+    let mut v = vec![newer.clone(), older.clone()];
+    v.sort_by(prefer_keep_order);
+    assert_eq!(v[0].parent_id, "z"); // older wins
+}
+
+#[test]
+fn prefer_keep_order_same_time_longer_sentence_wins() {
+    let time = Utc.with_ymd_and_hms(2026, 3, 1, 0, 0, 0).unwrap();
+    let short = Candidate {
+        parent_id: "z".into(), sub_idx: 0, create_time: time, sentence_len: 10,
+    };
+    let long = Candidate {
+        parent_id: "a".into(), sub_idx: 0, create_time: time, sentence_len: 100,
+    };
+    let mut v = vec![short.clone(), long.clone()];
+    v.sort_by(prefer_keep_order);
+    assert_eq!(v[0].parent_id, "a"); // longer sentence wins
+}
+
+#[test]
+fn prefer_keep_order_same_time_same_length_lexical_parent_id() {
+    let time = Utc.with_ymd_and_hms(2026, 3, 1, 0, 0, 0).unwrap();
+    let a = Candidate { parent_id: "a".into(), sub_idx: 0, create_time: time, sentence_len: 10 };
+    let b = Candidate { parent_id: "b".into(), sub_idx: 0, create_time: time, sentence_len: 10 };
+    let mut v = vec![b.clone(), a.clone()];
+    v.sort_by(prefer_keep_order);
+    assert_eq!(v[0].parent_id, "a"); // lexical order
+}

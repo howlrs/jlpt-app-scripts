@@ -78,3 +78,34 @@ pub fn dedup_key(level_id: u32, sub: &SubLike) -> Result<String, KeySkipReason> 
         answer_value
     ))
 }
+
+use chrono::{DateTime, Utc};
+
+/// tiebreaker のための候補情報。
+#[derive(Clone, Debug)]
+pub struct Candidate {
+    pub parent_id: String,
+    pub sub_idx: usize,
+    pub create_time: DateTime<Utc>,
+    pub sentence_len: usize,
+}
+
+/// 重複グループ内で「残すレコード」を決めるための比較関数。
+///
+/// 優先順位: createTime 古い方 → sentence 長い方 → parent_id 辞書順
+///
+/// `Vec::sort_by(prefer_keep_order)` でソートすると、先頭が「残すべきレコード」になる。
+pub fn prefer_keep_order(a: &Candidate, b: &Candidate) -> std::cmp::Ordering {
+    // 1. createTime 古い方を先頭に
+    match a.create_time.cmp(&b.create_time) {
+        std::cmp::Ordering::Equal => {}
+        ord => return ord,
+    }
+    // 2. sentence 長い方を先頭に (降順なので b.len.cmp(a.len))
+    match b.sentence_len.cmp(&a.sentence_len) {
+        std::cmp::Ordering::Equal => {}
+        ord => return ord,
+    }
+    // 3. parent_id 辞書順
+    a.parent_id.cmp(&b.parent_id)
+}
