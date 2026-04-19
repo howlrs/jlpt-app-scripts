@@ -28,7 +28,6 @@ struct ReportRow {
     parent_id: String,
     sub_idx: usize,
     #[serde(default)]
-    #[allow(dead_code)]
     sentence: String,
 }
 
@@ -77,14 +76,18 @@ async fn main() {
     };
     info!("removable_subs (期待値): {}", report.removable_subs);
 
-    // parent_id -> Vec<sub_idx to remove>
-    let mut remove_map: HashMap<String, Vec<usize>> = HashMap::new();
+    // parent_id -> Vec<(sub_idx, expected_sentence)>
+    let mut remove_map: HashMap<String, Vec<(usize, String)>> = HashMap::new();
     for g in &report.groups {
         for r in &g.remove {
-            remove_map.entry(r.parent_id.clone()).or_insert_with(Vec::new).push(r.sub_idx);
+            remove_map.entry(r.parent_id.clone()).or_insert_with(Vec::new).push((r.sub_idx, r.sentence.clone()));
         }
     }
     info!("対象 parent 数: {}", remove_map.len());
+    if remove_map.len() > 1000 {
+        error!("対象 parent 数が異常に多い ({}) — 不正な report の可能性あり。中止", remove_map.len());
+        return;
+    }
 
     let project_id = match env::var("PROJECT_ID") {
         Ok(id) => id,
@@ -103,7 +106,11 @@ async fn main() {
     let total_parents = remove_map.len();
     let mut processed = 0usize;
 
-    for (parent_id, sub_indices_to_remove) in &remove_map {
+    // I4: HashMap iteration は非決定論的なので sort してから処理 (dry-run出力の再現性確保)
+    let mut sorted_entries: Vec<(&String, &Vec<(usize, String)>)> = remove_map.iter().collect();
+    sorted_entries.sort_by(|a, b| a.0.cmp(b.0));
+
+    for (parent_id, sub_removals) in sorted_entries {
         processed += 1;
 
         // 現行 Question を取得
@@ -134,34 +141,71 @@ async fn main() {
         // sub_questions を抽出
         let subs = doc.get("sub_questions").and_then(|v| v.as_array()).cloned().unwrap_or_default();
 
-        // 残す sub を構築 (sub_idx を除外)
-        let remove_set: std::collections::HashSet<usize> = sub_indices_to_remove.iter().cloned().collect();
+        // C1/I1: 各 (sub_idx, expected_sentence) について、現在の sub_questions が content match するか検証
+        let mut confirmed_remove_idx: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        let mut out_of_range = 0usize;
+        let mut content_mismatch = 0usize;
+        let mut already_gone = 0usize;
+        for (idx, expected_sent) in sub_removals {
+            if *idx >= subs.len() {
+                out_of_range += 1;
+                continue;
+            }
+            let curr_sent = subs[*idx].get("sentence").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+            if !expected_sent.is_empty() && curr_sent != *expected_sent {
+                content_mismatch += 1;
+                warn!("parent {} sub_idx={}: content mismatch, skipping (expected='{}' current='{}')",
+                    parent_id, idx, &expected_sent[..expected_sent.chars().take(40).count().min(expected_sent.len())], &curr_sent[..curr_sent.chars().take(40).count().min(curr_sent.len())]);
+                continue;
+            }
+            confirmed_remove_idx.insert(*idx);
+        }
+
+        // すべての removal が既に存在しない場合
+        if confirmed_remove_idx.is_empty() {
+            if !sub_removals.is_empty() {
+                already_gone = sub_removals.len();
+                sub_already_gone += already_gone;
+                warn!("parent {}: 対象 sub_idx がすべて既に存在しないか不整合 (out_of_range={}, content_mismatch={}, already_gone={})",
+                    parent_id, out_of_range, content_mismatch, already_gone - out_of_range - content_mismatch);
+            }
+            continue;
+        }
+
+        // 実際に除外する sub を構築
         let kept: Vec<serde_json::Value> = subs.iter().enumerate()
-            .filter(|(i, _)| !remove_set.contains(i))
+            .filter(|(i, _)| !confirmed_remove_idx.contains(i))
             .map(|(_, s)| s.clone())
             .collect();
 
-        let removed_count = subs.len() - kept.len();
-        if removed_count == 0 {
-            sub_already_gone += sub_indices_to_remove.len();
-            warn!("parent {}: 対象 sub_idx がすでに存在しない (report 過時か冪等再実行)", parent_id);
-            continue;
+        let planned_removed_count = confirmed_remove_idx.len();
+
+        // Content mismatch を errors に含めるかはポリシー次第。今回は warn のみで継続するが、一定数超えたら abort する
+        if content_mismatch > 0 {
+            errors.push((parent_id.clone(), format!("content_mismatch on {} sub(s)", content_mismatch)));
         }
-        subs_removed += removed_count;
 
         if !execute {
             if kept.is_empty() {
-                info!("[dry-run] would DELETE parent={} (all {} subs)", parent_id, subs.len());
+                info!("[dry-run] would DELETE parent={} (all {} subs) remove_idx={:?}",
+                    parent_id, subs.len(), confirmed_remove_idx.iter().collect::<Vec<_>>());
             } else {
-                info!("[dry-run] would UPDATE parent={} ({} → {} subs)", parent_id, subs.len(), kept.len());
+                let mut remove_vec: Vec<&usize> = confirmed_remove_idx.iter().collect();
+                remove_vec.sort();
+                info!("[dry-run] would UPDATE parent={} subs {} → {} remove_idx={:?}",
+                    parent_id, subs.len(), kept.len(), remove_vec);
             }
+            subs_removed += planned_removed_count; // dry-run planned count
             continue;
         }
 
         // 実行
         if kept.is_empty() {
             match db.fluent().delete().from("questions").document_id(parent_id).execute().await {
-                Ok(_) => { parents_deleted += 1; }
+                Ok(_) => {
+                    parents_deleted += 1;
+                    subs_removed += planned_removed_count;
+                }
                 Err(e) => {
                     let msg = format!("{:?}", e);
                     if msg.contains("RESOURCE_EXHAUSTED") || msg.contains("code: 8") {
@@ -186,7 +230,10 @@ async fn main() {
                 .execute::<serde_json::Value>()
                 .await
             {
-                Ok(_) => { updated += 1; }
+                Ok(_) => {
+                    updated += 1;
+                    subs_removed += planned_removed_count;
+                }
                 Err(e) => {
                     let msg = format!("{:?}", e);
                     if msg.contains("RESOURCE_EXHAUSTED") || msg.contains("code: 8") {
@@ -209,12 +256,12 @@ async fn main() {
     }
 
     info!("=== Summary ===");
-    info!("processed parents:     {}", processed);
-    info!("subs_removed:          {}", subs_removed);
-    info!("updated parents:       {}", updated);
-    info!("deleted parents:       {}", parents_deleted);
-    info!("sub_already_gone:      {}", sub_already_gone);
-    info!("errors:                {}", errors.len());
+    info!("processed parents:         {}", processed);
+    info!("subs_removed (confirmed):  {}  // 実行モードでは Firestore書き込みに成功した件数のみ", subs_removed);
+    info!("updated parents:           {}", updated);
+    info!("deleted parents:           {}", parents_deleted);
+    info!("sub_already_gone:          {}", sub_already_gone);
+    info!("errors:                    {}", errors.len());
 
     if !errors.is_empty() {
         let err_path = "reports/apply_dedup_errors.json";
