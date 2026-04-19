@@ -51,9 +51,20 @@ fn main() {
 
                 if let Some(correct_val) = correct_value {
                     // 値だけを抽出してシャッフル
-                    let mut values: Vec<String> =
+                    let original_values: Vec<String> =
                         sub_q.select_answer.iter().map(|sa| sa.value.clone()).collect();
-                    values.shuffle(&mut rng);
+                    let mut values = original_values.clone();
+
+                    // Issue #15: identity permutation (元の並びと完全一致) を排除
+                    // 並び替え問題 (category=9) で value が "1","2","3","4" の場合、
+                    // シャッフル結果が偶然 identity (key==value) になると視覚的にバグに見える。
+                    // 最大 10 回リトライして identity を避ける。
+                    for _ in 0..10 {
+                        values.shuffle(&mut rng);
+                        if values != original_values {
+                            break;
+                        }
+                    }
 
                     // 新しい選択肢を構築
                     let new_answers: Vec<SelectAnswer> = values
