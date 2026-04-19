@@ -3,7 +3,7 @@
 ## パイプライン全体像
 
 ```
-[0] AI問題生成 ──▶ [1] JSONパース ──▶ [1.5] バリデーション ──▶ [2] 類似排除
+[0] AI問題生成 ──▶ [1] JSONパース ──▶ [1.5] バリデーション ──▶ [2] 重複排除
                                                                       │
 [99] DB投入 ◀── [5] カテゴリ抽出 ◀── [4] レベル正規化 ◀── [3] ID採番 ◀┘
 ```
@@ -97,13 +97,28 @@ cargo run --bin create_targeted
 
 ### Script 2: `duplicate` (2_duplicate.rs)
 
-**機能:** Levenshtein距離に基づく類似排除
+**機能:** 選択肢セット+正解値ベースの重複排除
+
+**dedup キー:**
+```
+L{level_id}|OPT[{sorted_normalized_values}]|ANS[{normalized_answer_value}]
+```
+
+- 選択肢値は Unicode NFKC 正規化 + 前後空白 trim + sort 済み
+- 選択肢値がすべて `"1","2","3","4"` の場合は並び替え問題とみなし除外
+- 正解キーに対応する値が見つからない場合も除外 (不正データ)
 
 **処理内容:**
-1. `1_5_validated.json` を読込
-2. `SubQuestion.sentence` 間のLevenshtein距離を計算
-3. 類似度85%以上のペアを検出し、後方の問題を除去
-4. 類似排除後のデータを `2_deduplicated.json` に保存
+1. `1_7_shuffled.json` を読込
+2. 各 sub_question について `dedup_key` を計算
+3. 同一キーの2件目以降を除去、並び替え問題と不正データは保持
+4. `2_deduplicated.json` に保存
+
+**過去の実装との差分:**
+旧 dedup_key は `sentence + "||" + correct_value` で選択肢セットを見ていなかった。新 key は選択肢セット込みのため、文のバリエーションを変えただけの類問を検出できる。Levenshtein 類似判定は廃止。
+
+**共通ヘルパー:**
+`bin/dedup_common.rs` に `normalize_text`, `dedup_key`, `prefer_keep_order`, `Candidate`, `SubLike`, `KeySkipReason` を配置。`#[path = "dedup_common.rs"] mod dedup_common;` で各バイナリから参照。テストは `tests/dedup_common_tests.rs` (20テスト)。
 
 ---
 
@@ -229,7 +244,7 @@ BAD_THRESHOLD=0.5 cargo run --bin review_votes        # 閾値変更（デフォ
 cargo run --bin create_questions         # 0. AI生成（カテゴリベース）
 cargo run --bin json_read_to_struct      # 1. パース → 1_parsed.json
                                          # 1.5. バリデーション → 1_5_validated.json
-cargo run --bin duplicate                # 2. 類似排除 → 2_deduplicated.json
+cargo run --bin duplicate                # 2. 重複排除 → 2_deduplicated.json
 cargo run --bin numbering                # 3. ID採番
 cargo run --bin leveling                 # 4. レベル正規化
 cargo run --bin categories_to_meta       # 5. カテゴリ抽出
@@ -244,6 +259,22 @@ cargo run --bin check_db                 # DB内容確認
 DRY_RUN=true cargo run --bin clear_and_replace   # 置換プレビュー
 DRY_RUN=false cargo run --bin clear_and_replace  # 実際に置換実行
 ```
+
+### 重複データ掃除 (one-shot、2026-04-19 実行済み)
+
+本番DB上の重複 sub_question を掃除する one-shot 群。すべて `--execute` フラグで本番書き込み、デフォルトは dry-run。
+
+```bash
+cargo run --bin normalize_levels                 # level_name を大文字統一 (dry-run)
+cargo run --bin normalize_levels -- --execute    # 実際に更新
+
+cargo run --bin report_duplicates                # reports/duplicates.json 生成 (読み取り専用)
+
+cargo run --bin apply_dedup                      # report 適用 (dry-run)
+cargo run --bin apply_dedup -- --execute         # 実際に削除
+```
+
+共通ヘルパーは `bin/dedup_common.rs` (Task 2-6)。詳細: `docs/superpowers/plans/2026-04-19-duplicate-cleanup.md`
 
 ## 品質監視 (monitor_quality)
 
@@ -288,7 +319,7 @@ DRY_RUN=false cargo run --bin clear_and_replace  # 実際に置換実行
 | `{timestamp}.json` | Script 0 | API生レスポンス |
 | `1_parsed.json` | Script 1 | パース済みJSON |
 | `1_5_validated.json` | Script 1.5 | バリデーション済み |
-| `2_deduplicated.json` | Script 2 | 類似排除済み |
+| `2_deduplicated.json` | Script 2 | 重複排除済み |
 | `3_numbering_data.json` | Script 3 | ID採番済み |
 | `4_leveling_data.json` | Script 4 | レベル正規化済み |
 | `5_categories_meta.json` | Script 5 | カテゴリメタ |

@@ -81,6 +81,21 @@ path = "bin/review_votes.rs"
 name = "check_db"
 path = "bin/check_db.rs"
 
+# レベル名の大文字統一 (one-shot)
+[[bin]]
+name = "normalize_levels"
+path = "bin/99_normalize_levels.rs"
+
+# 重複レポート生成 (読み取り専用 one-shot)
+[[bin]]
+name = "report_duplicates"
+path = "bin/99_report_duplicates.rs"
+
+# dedup レポート適用 (破壊的 one-shot)
+[[bin]]
+name = "apply_dedup"
+path = "bin/99_apply_dedup.rs"
+
 [dependencies]
 chrono = "0.4.40"
 env_logger = "0.11.6"
@@ -96,3 +111,5 @@ uuid = { version = "1.15.1", features = ["v4"] }
 rand = "0.9"
 tokio-stream = "0.1"
 futures-util = "0.3"
+unicode-normalization = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
