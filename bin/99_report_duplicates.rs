@@ -81,7 +81,14 @@ async fn main() {
     info!("=== 99_report_duplicates ===");
     info!("Firestore REST API で questions を取得中...");
 
-    let docs = fetch_all_questions(&project_id, &token).await;
+    let docs = match fetch_all_questions(&project_id, &token).await {
+        Ok(d) => d,
+        Err(e) => {
+            error!("fetch_all_questions failed: {}", e);
+            error!("レポートは書き出しません (partial dataと判断)");
+            return;
+        }
+    };
     info!("取得完了: {} docs", docs.len());
 
     // 全 sub_question を dedup_key でグルーピング
@@ -171,7 +178,10 @@ async fn main() {
     }
 
     // create_time 降順でソート (新しい重複ほど上位、レビューしやすい)
-    dup_groups_out.sort_by(|a, b| b.keep.create_time.cmp(&a.keep.create_time));
+    dup_groups_out.sort_by(|a, b| {
+        b.keep.create_time.cmp(&a.keep.create_time)
+            .then_with(|| a.dedup_key.cmp(&b.dedup_key))
+    });
 
     let report = Report {
         generated_at: Utc::now().to_rfc3339(),
@@ -226,26 +236,31 @@ fn get_access_token() -> Result<String, String> {
     Ok(s.trim().to_string())
 }
 
-async fn fetch_all_questions(project_id: &str, token: &str) -> Vec<RestDocument> {
+async fn fetch_all_questions(project_id: &str, token: &str) -> Result<Vec<RestDocument>, String> {
     let client = reqwest::Client::new();
     let mut out: Vec<RestDocument> = Vec::new();
     let mut page_token: Option<String> = None;
+    let base_url = format!(
+        "https://firestore.googleapis.com/v1/projects/{}/databases/(default)/documents/questions",
+        project_id
+    );
     loop {
-        let mut url = format!(
-            "https://firestore.googleapis.com/v1/projects/{}/databases/(default)/documents/questions?pageSize=300",
-            project_id
-        );
+        let mut req = client.get(&base_url).bearer_auth(token).query(&[("pageSize", "300")]);
         if let Some(t) = &page_token {
-            url.push_str(&format!("&pageToken={}", t));
+            req = req.query(&[("pageToken", t.as_str())]);
         }
-        let resp = match client.get(&url).bearer_auth(token).send().await {
-            Ok(r) => r,
-            Err(e) => { error!("fetch failed: {:?}", e); break; }
-        };
-        let body: RestListResponse = match resp.json().await {
-            Ok(b) => b,
-            Err(e) => { error!("json parse failed: {:?}", e); break; }
-        };
+        let resp = req.send().await
+            .map_err(|e| format!("HTTP send failed: {:?}", e))?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("Firestore returned HTTP {}: {}", status, body));
+        }
+
+        let body: RestListResponse = resp.json().await
+            .map_err(|e| format!("JSON parse failed: {:?}", e))?;
+
         out.extend(body.documents);
         match body.next_page_token {
             Some(ref t) if !t.is_empty() => { page_token = Some(t.clone()); }
@@ -253,7 +268,7 @@ async fn fetch_all_questions(project_id: &str, token: &str) -> Vec<RestDocument>
         }
         info!("  取得中... {} docs", out.len());
     }
-    out
+    Ok(out)
 }
 
 fn extract_string(fields: &serde_json::Value, key: &str) -> Option<String> {
