@@ -162,6 +162,21 @@ fn validate_question(question: &Question) -> Vec<String> {
             }
         }
 
+        // Issue #16: 並び替え問題 (category=9) 以外で、選択肢 value が数字のみ ("1","2","3","4") は不正
+        // 並び替え問題は value が位置番号を表すため例外
+        if cat_id_num != 9 && sub_q.select_answer.len() == 4 {
+            let mut sorted_values: Vec<String> = sub_q.select_answer.iter()
+                .map(|sa| sa.value.trim().to_string())
+                .collect();
+            sorted_values.sort();
+            if sorted_values == vec!["1".to_string(), "2".to_string(), "3".to_string(), "4".to_string()] {
+                reasons.push(format!(
+                    "{}: select_answer values are all numeric placeholders ({:?}) — incorrect format for category_id={}",
+                    sub_label, sorted_values, cat_id_num
+                ));
+            }
+        }
+
         // no duplicate options: select_answer values must all be unique within a SubQuestion
         let mut seen_values = HashSet::new();
         for sa in &sub_q.select_answer {
