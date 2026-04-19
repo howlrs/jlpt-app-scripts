@@ -154,8 +154,10 @@ async fn main() {
             let curr_sent = subs[*idx].get("sentence").and_then(|v| v.as_str()).unwrap_or_default().to_string();
             if !expected_sent.is_empty() && curr_sent != *expected_sent {
                 content_mismatch += 1;
+                let expected_preview: String = expected_sent.chars().take(40).collect();
+                let curr_preview: String = curr_sent.chars().take(40).collect();
                 warn!("parent {} sub_idx={}: content mismatch, skipping (expected='{}' current='{}')",
-                    parent_id, idx, &expected_sent[..expected_sent.chars().take(40).count().min(expected_sent.len())], &curr_sent[..curr_sent.chars().take(40).count().min(curr_sent.len())]);
+                    parent_id, idx, expected_preview, curr_preview);
                 continue;
             }
             confirmed_remove_idx.insert(*idx);
