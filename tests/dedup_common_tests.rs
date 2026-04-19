@@ -161,3 +161,32 @@ fn prefer_keep_order_same_time_same_length_lexical_parent_id() {
     v.sort_by(prefer_keep_order);
     assert_eq!(v[0].parent_id, "a"); // lexical order
 }
+
+#[test]
+fn prefer_keep_order_identical_returns_equal() {
+    // 全フィールド同一の場合は Equal を返し、安定ソートで入力順を保持する
+    let time = Utc.with_ymd_and_hms(2026, 3, 1, 0, 0, 0).unwrap();
+    let a = Candidate { parent_id: "x".into(), sub_idx: 0, create_time: time, sentence_len: 10 };
+    let b = Candidate { parent_id: "x".into(), sub_idx: 0, create_time: time, sentence_len: 10 };
+    assert_eq!(prefer_keep_order(&a, &b), std::cmp::Ordering::Equal);
+}
+
+#[test]
+fn prefer_keep_order_cross_axis_time_dominates_length() {
+    // a が時刻で負けているが文長で勝っている場合: 時刻順が優先される
+    let older_short = Candidate {
+        parent_id: "z".into(),
+        sub_idx: 0,
+        create_time: Utc.with_ymd_and_hms(2026, 3, 1, 0, 0, 0).unwrap(),
+        sentence_len: 10,
+    };
+    let newer_long = Candidate {
+        parent_id: "a".into(),
+        sub_idx: 0,
+        create_time: Utc.with_ymd_and_hms(2026, 4, 1, 0, 0, 0).unwrap(),
+        sentence_len: 999,
+    };
+    let mut v = vec![newer_long.clone(), older_short.clone()];
+    v.sort_by(prefer_keep_order);
+    assert_eq!(v[0].parent_id, "z"); // 時刻が優先
+}

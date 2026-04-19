@@ -82,11 +82,14 @@ pub fn dedup_key(level_id: u32, sub: &SubLike) -> Result<String, KeySkipReason> 
 use chrono::{DateTime, Utc};
 
 /// tiebreaker のための候補情報。
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Candidate {
     pub parent_id: String,
     pub sub_idx: usize,
     pub create_time: DateTime<Utc>,
+    /// Unicode スカラー値の数 (`sentence.chars().count()` の結果)。
+    /// **バイト長 (`String::len()`) を入れてはならない**。日本語は 1 文字 = 通常 3 バイトのため、
+    /// 混在テキストで tiebreaker が壊れる。
     pub sentence_len: usize,
 }
 
