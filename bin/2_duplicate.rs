@@ -19,6 +19,13 @@ fn main() {
     for level in LEVELS {
         // シャッフル済みファイルを優先
         let input_file = "1_7_shuffled.json";
+        // "n1"〜"n5" → 1〜5 に変換。後段 (Task 8/9) の dedup_key との整合のため、
+        // stage 2 でも level_id が 0 でなく正しいレベル値で key を生成する。
+        let level_id_from_loop: u32 = level
+            .trim_start_matches(|c: char| c == 'n' || c == 'N')
+            .parse()
+            .unwrap_or(0);
+
         let questions = match read_questions_from_stage(level, input_file) {
             Ok(q) => q,
             Err(e) => {
@@ -51,7 +58,7 @@ fn main() {
                         .collect(),
                     answer: sub_q.answer.clone(),
                 };
-                match dedup_key(question.level_id, &sub_like) {
+                match dedup_key(level_id_from_loop, &sub_like) {
                     Ok(key) => {
                         if seen_keys.contains(&key) {
                             removed_as_dup += 1;
