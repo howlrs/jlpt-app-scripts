@@ -3,6 +3,10 @@
 //!
 //! --dry-run (デフォルト): 対象件数のみを報告、書き込みなし
 //! --execute: 実際に Firestore を更新
+//!
+//! ## Idempotency
+//! 再実行しても安全。`level_name.to_uppercase() != level_name` の差分のみ処理するため、
+//! 途中で中断された場合は再度 `--execute` で残り分を処理できる。
 
 use futures_util::StreamExt;
 use log::{error, info, warn};
@@ -19,7 +23,10 @@ async fn main() {
     let mode = if execute { "EXECUTE" } else { "DRY-RUN" };
     info!("=== 99_normalize_levels [{}] ===", mode);
 
-    let project_id = env::var("PROJECT_ID").expect("PROJECT_ID must be set");
+    let project_id = match env::var("PROJECT_ID") {
+        Ok(id) => id,
+        Err(_) => { error!("PROJECT_ID must be set"); return; }
+    };
     let db = match firestore::FirestoreDb::new(&project_id).await {
         Ok(d) => d,
         Err(e) => {
@@ -49,11 +56,13 @@ async fn main() {
     let mut needs_update: Vec<(String, String, String, serde_json::Value)> = Vec::new();
     // (id, old_level, new_level, full_doc)
 
+    let mut stream_errors = 0usize;
     while let Some(item) = stream.next().await {
         let doc = match item {
             Ok(d) => d,
             Err(e) => {
                 warn!("stream item error: {:?}", e);
+                stream_errors += 1;
                 continue;
             }
         };
@@ -64,9 +73,12 @@ async fn main() {
         if old_level != new_level && !id.is_empty() {
             needs_update.push((id, old_level, new_level, doc));
         }
+        if total % 2000 == 0 {
+            info!("scanned {}", total);
+        }
     }
 
-    info!("total docs: {}, needs update: {}", total, needs_update.len());
+    info!("total docs: {}, needs update: {}, stream_errors: {}", total, needs_update.len(), stream_errors);
 
     // 変更内訳を level_name 別にカウント
     let mut breakdown: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
@@ -88,6 +100,7 @@ async fn main() {
     info!("実行中...");
     let mut ok = 0usize;
     let mut err = 0usize;
+    use std::time::Duration;
     for (id, _old, new_level, doc) in &needs_update {
         let mut new_doc = doc.clone();
         if let Some(obj) = new_doc.as_object_mut() {
@@ -104,11 +117,18 @@ async fn main() {
         {
             Ok(_) => ok += 1,
             Err(e) => {
-                error!("update failed id={}: {:?}", id, e);
+                let msg = format!("{:?}", e);
+                if msg.contains("RESOURCE_EXHAUSTED") || msg.contains("code: 8") {
+                    warn!("rate limited on id={}, sleeping 1s then continuing", id);
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+                error!("update failed id={}: {}", id, msg);
                 err += 1;
             }
         }
-        if (ok + err) % 500 == 0 {
+        // 緩やかなレート制限 (5ms sleep ≒ 200 writes/sec 上限、Firestoreの500/sec制限を余裕で下回る)
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        if (ok + err) % 250 == 0 {
             info!("進捗: {} / {}", ok + err, needs_update.len());
         }
     }
