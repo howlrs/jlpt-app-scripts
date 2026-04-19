@@ -84,8 +84,15 @@ async fn main() {
         }
     }
     info!("対象 parent 数: {}", remove_map.len());
-    if remove_map.len() > 1000 {
-        error!("対象 parent 数が異常に多い ({}) — 不正な report の可能性あり。中止", remove_map.len());
+
+    // Issue #17: 閾値は環境変数で override 可能 (デフォルト 1000)
+    let max_parents_abort: usize = env::var("MAX_PARENTS_ABORT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1000);
+    if remove_map.len() > max_parents_abort {
+        error!("対象 parent 数が異常に多い ({} > {}) — 不正な report の可能性あり。中止 (MAX_PARENTS_ABORT で閾値調整可)",
+            remove_map.len(), max_parents_abort);
         return;
     }
 

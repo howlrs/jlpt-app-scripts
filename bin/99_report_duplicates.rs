@@ -236,16 +236,17 @@ fn get_access_token() -> Result<String, String> {
     Ok(s.trim().to_string())
 }
 
-async fn fetch_all_questions(project_id: &str, token: &str) -> Result<Vec<RestDocument>, String> {
+async fn fetch_all_questions(project_id: &str, initial_token: &str) -> Result<Vec<RestDocument>, String> {
     let client = reqwest::Client::new();
     let mut out: Vec<RestDocument> = Vec::new();
     let mut page_token: Option<String> = None;
+    let mut token = initial_token.to_string();
     let base_url = format!(
         "https://firestore.googleapis.com/v1/projects/{}/databases/(default)/documents/questions",
         project_id
     );
     loop {
-        let mut req = client.get(&base_url).bearer_auth(token).query(&[("pageSize", "300")]);
+        let mut req = client.get(&base_url).bearer_auth(&token).query(&[("pageSize", "300")]);
         if let Some(t) = &page_token {
             req = req.query(&[("pageToken", t.as_str())]);
         }
@@ -253,6 +254,14 @@ async fn fetch_all_questions(project_id: &str, token: &str) -> Result<Vec<RestDo
             .map_err(|e| format!("HTTP send failed: {:?}", e))?;
 
         let status = resp.status();
+        if status.as_u16() == 401 {
+            // Issue #17: 1h TTL 切れの可能性 → token を再取得して当該ページのみリトライ
+            log::warn!("401 Unauthorized — gcloud token を再取得して retry");
+            token = get_access_token()
+                .map_err(|e| format!("token refresh failed: {}", e))?;
+            // 当該ページを再送信 (page_token を変えず、next loop で同じ req 再構築)
+            continue;
+        }
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
             return Err(format!("Firestore returned HTTP {}: {}", status, body));
