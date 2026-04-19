@@ -38,7 +38,7 @@ fn normalize_text_empty() {
     assert_eq!(normalize_text("   "), "");
 }
 
-use dedup_common::{dedup_key, SubLike};
+use dedup_common::{dedup_key, KeySkipReason, SubLike};
 
 fn mk_sub(options: &[(&str, &str)], answer: &str) -> SubLike {
     SubLike {
@@ -66,23 +66,23 @@ fn dedup_key_same_options_different_answer_produces_different_keys() {
 
 #[test]
 fn dedup_key_excludes_numeric_options() {
-    // category=9 並び替え問題は選択肢が '1','2','3','4' で値が意味を持たないため None を返す
+    // category=9 並び替え問題は選択肢が '1','2','3','4' で値が意味を持たないため NumericPlaceholder を返す
     let sub = mk_sub(&[("1","1"),("2","2"),("3","3"),("4","4")], "1");
-    assert!(dedup_key(3, &sub).is_none());
+    assert_eq!(dedup_key(3, &sub), Err(dedup_common::KeySkipReason::NumericPlaceholder));
 }
 
 #[test]
 fn dedup_key_excludes_numeric_options_after_shuffle() {
     // key と value が食い違っていても値がすべて '1'〜'4' ならスキップ
     let sub = mk_sub(&[("1","3"),("2","1"),("3","4"),("4","2")], "2");
-    assert!(dedup_key(3, &sub).is_none());
+    assert_eq!(dedup_key(3, &sub), Err(dedup_common::KeySkipReason::NumericPlaceholder));
 }
 
 #[test]
-fn dedup_key_returns_none_when_answer_value_missing() {
-    // answer="5" だが選択肢に key="5" がない → None
+fn dedup_key_returns_answer_not_in_options_when_missing() {
+    // answer="5" だが選択肢に key="5" がない → AnswerNotInOptions
     let sub = mk_sub(&[("1","a"),("2","b"),("3","c"),("4","d")], "5");
-    assert!(dedup_key(1, &sub).is_none());
+    assert_eq!(dedup_key(1, &sub), Err(dedup_common::KeySkipReason::AnswerNotInOptions));
 }
 
 #[test]
@@ -99,4 +99,19 @@ fn dedup_key_normalizes_fullwidth() {
     let sub_full = mk_sub(&[("1","１Ａ"),("2","２Ｂ"),("3","３Ｃ"),("4","４Ｄ")], "1");
     // ただし値が全て '1'〜'4' で始まるが "1A" など別文字列なので除外ルールには該当しない
     assert_eq!(dedup_key(1, &sub_half), dedup_key(1, &sub_full));
+}
+
+#[test]
+fn dedup_key_is_order_independent() {
+    // 選択肢の入力順が違っても同じキーを生成する (sort してから結合するため)
+    let sub1 = mk_sub(&[("1","役割"),("2","役目"),("3","配役"),("4","役者")], "1");
+    let sub2 = mk_sub(&[("4","役割"),("3","役目"),("2","配役"),("1","役者")], "4"); // answer も同じ "役割" を指す
+    assert_eq!(dedup_key(5, &sub1).unwrap(), dedup_key(5, &sub2).unwrap());
+}
+
+#[test]
+fn dedup_key_empty_options_returns_answer_not_in_options() {
+    // I-1 からの派生: options が空の場合の挙動を明示
+    let sub = SubLike { options: vec![], answer: "1".to_string() };
+    assert_eq!(dedup_key(1, &sub), Err(KeySkipReason::AnswerNotInOptions));
 }

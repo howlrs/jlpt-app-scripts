@@ -29,14 +29,28 @@ pub struct SubLike {
     pub answer: String,
 }
 
+/// `dedup_key` が `Err` で返す理由。caller 側で分類に利用できる。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KeySkipReason {
+    /// 正規化後の選択肢値がすべて "1","2","3","4" (並び替え問題のプレースホルダ)
+    NumericPlaceholder,
+    /// `answer` キーに対応する value が選択肢に存在しない、または選択肢が空
+    AnswerNotInOptions,
+}
+
 /// dedup キーを生成する。
 ///
 /// 形式: `"L{level_id}|OPT[{sorted_normalized_values}]|ANS[{normalized_answer_value}]"`
 ///
-/// 以下のケースでは `None` を返す (dedup 対象外):
-/// - 選択肢値が正規化後すべて `"1"`, `"2"`, `"3"`, `"4"` (並び替え問題のプレースホルダ)
-/// - `answer` キーに対応する value が選択肢に存在しない (不正データ)
-pub fn dedup_key(level_id: u32, sub: &SubLike) -> Option<String> {
+/// 以下のケースでは `Err(KeySkipReason)` を返す (dedup 対象外):
+/// - `NumericPlaceholder`: 選択肢値が正規化後すべて `"1"`, `"2"`, `"3"`, `"4"` (並び替え問題)
+/// - `AnswerNotInOptions`: `answer` キーに対応する value が選択肢に存在しない
+///
+/// ## 制約
+/// Caller は正規化後の選択肢値および正解値が `,`, `|`, `[`, `]` を含まないことを保証すること。
+/// これらは key format の delimiter として使われ、エスケープされない。JLPT 問題データでは
+/// 通常これらが含まれることはないが、将来的にデータソースが変わる場合は検証が必要。
+pub fn dedup_key(level_id: u32, sub: &SubLike) -> Result<String, KeySkipReason> {
     // すべての選択肢値を正規化
     let normalized: Vec<(String, String)> = sub.options.iter()
         .map(|(k, v)| (k.clone(), normalize_text(v)))
@@ -48,15 +62,16 @@ pub fn dedup_key(level_id: u32, sub: &SubLike) -> Option<String> {
 
     // '1'〜'4' のみからなる選択肢は除外
     if sorted_values == vec!["1".to_string(), "2".to_string(), "3".to_string(), "4".to_string()] {
-        return None;
+        return Err(KeySkipReason::NumericPlaceholder);
     }
 
     // answer キーから value を引く
     let answer_value = normalized.iter()
         .find(|(k, _)| k == &sub.answer)
-        .map(|(_, v)| v.clone())?;
+        .map(|(_, v)| v.clone())
+        .ok_or(KeySkipReason::AnswerNotInOptions)?;
 
-    Some(format!(
+    Ok(format!(
         "L{}|OPT[{}]|ANS[{}]",
         level_id,
         sorted_values.join(","),
