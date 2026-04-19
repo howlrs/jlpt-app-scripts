@@ -206,6 +206,50 @@ fn validate_question(question: &Question) -> Vec<String> {
             }
         }
 
+        // Phase 12: 並び替え問題 (cat=9) で選択肢 value が「N-N-N-N」形式のみ = 語句不在
+        // 正当な並び替え問題は value に語句テキストが入り、key に並び順番号が入る
+        if cat_id_num == 9 && sub_q.select_answer.len() == 4 {
+            let all_numeric_seq = sub_q.select_answer.iter().all(|sa| {
+                let v = sa.value.trim();
+                // 「N-N-N-N」 or 純粋な数字のみ
+                v.chars().all(|c| c.is_ascii_digit() || c == '-' || c.is_whitespace())
+            });
+            if all_numeric_seq {
+                reasons.push(format!(
+                    "{}: 並び替え問題 (cat=9) の選択肢 value が数字列のみ。並べるべき語句データが欠落している",
+                    sub_label
+                ));
+            }
+        }
+
+        // Phase 12: 漢字読み問題 (cat=2) で sub.sentence に漢字 (CJK Unified Ideographs) がない
+        if cat_id_num == 2 {
+            let sent = sub_q.sentence.as_deref().unwrap_or("");
+            let has_kanji = sent.chars().any(|c| ('\u{4E00}'..='\u{9FFF}').contains(&c));
+            if !has_kanji {
+                reasons.push(format!(
+                    "{}: 漢字読み問題 (cat=2) に漢字がない - 読み方を問えない",
+                    sub_label
+                ));
+            }
+        }
+
+        // Phase 12: 読解・聴解系 (cat=10-13 読解 / 14-17 聴解) で本文・会話が parent.prerequisites に
+        // 存在しない場合は欠陥データ。cat=18 発話表現、cat=19 即時応答は短文で OK なので除外
+        if matches!(cat_id_num, 10..=17) {
+            let parent_has_content = !question.prerequisites.as_deref().unwrap_or("").trim().is_empty()
+                || question.sentence.chars().count() > 40;  // 指示文以上の長さなら本文扱い
+            let sub_has_content = sub_q.sentence.as_deref()
+                .map(|s| s.chars().count() > 40)
+                .unwrap_or(false);
+            if !parent_has_content && !sub_has_content {
+                reasons.push(format!(
+                    "{}: 読解/聴解問題 (cat={}) に本文/会話データがない",
+                    sub_label, cat_id_num
+                ));
+            }
+        }
+
         // Phase 10: レベル一貫性チェック (初級 N5/N4 向け)
         // 選択肢の文字数差が大きい or 長すぎる問題は、初級レベルとして不適切
         // (N5/N4 では選択肢長が揃っていて短いのが JLPT 公式の特徴)
