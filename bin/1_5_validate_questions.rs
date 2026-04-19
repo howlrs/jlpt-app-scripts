@@ -102,12 +102,30 @@ fn validate_question(question: &Question) -> Vec<String> {
         reasons.push("category_name is empty".to_string());
     }
 
+    // Phase 11: parent.sentence に HTML タグ or 「（　　）」以外の空括弧を含まない
+    if contains_html_tag(&question.sentence) {
+        reasons.push("question sentence contains HTML tags (<u>/</u> etc.)".to_string());
+    }
+    if contains_bad_empty_paren(&question.sentence) {
+        reasons.push("question sentence contains non-canonical empty parentheses (use '（　　）')".to_string());
+    }
+
     // category_id別チェック: 漢字読み(2)・表記(3)で空括弧はNG
     let cat_id_num = question.category_id.as_deref().unwrap_or("0")
         .parse::<u32>().unwrap_or(0);
 
     for (i, sub_q) in question.sub_questions.iter().enumerate() {
         let sub_label = format!("sub_question[{}]", i);
+
+        // Phase 11: sub.sentence に HTML タグ or 非標準空括弧を含まない
+        if let Some(sent) = &sub_q.sentence {
+            if contains_html_tag(sent) {
+                reasons.push(format!("{}: sentence contains HTML tags", sub_label));
+            }
+            if contains_bad_empty_paren(sent) {
+                reasons.push(format!("{}: sentence contains non-canonical empty parentheses (use '（　　）')", sub_label));
+            }
+        }
 
         // 漢字読み・表記カテゴリで空括弧チェック
         if cat_id_num == 2 || cat_id_num == 3 {
@@ -187,7 +205,109 @@ fn validate_question(question: &Question) -> Vec<String> {
                 ));
             }
         }
+
+        // Phase 10: レベル一貫性チェック (初級 N5/N4 向け)
+        // 選択肢の文字数差が大きい or 長すぎる問題は、初級レベルとして不適切
+        // (N5/N4 では選択肢長が揃っていて短いのが JLPT 公式の特徴)
+        let level_name_upper = question.level_name.to_uppercase();
+        let is_beginner = level_name_upper == "N5" || level_name_upper == "N4";
+        if is_beginner && sub_q.select_answer.len() == 4 {
+            let lens: Vec<usize> = sub_q.select_answer.iter()
+                .map(|sa| sa.value.chars().count())
+                .collect();
+            let max_len = lens.iter().max().copied().unwrap_or(0);
+            let min_len = lens.iter().min().copied().unwrap_or(0);
+            // 初級では選択肢長の差が 5 char 以上あると中級以上の文法が混入している可能性
+            if max_len.saturating_sub(min_len) >= 5 {
+                reasons.push(format!(
+                    "{}: 初級({})の選択肢文字数差が大きい (max={}, min={}, diff={}) - 中級以上の文法混入の疑い",
+                    sub_label, level_name_upper, max_len, min_len, max_len - min_len
+                ));
+            }
+            // 初級では 1 つの選択肢が 12 char を超えると長すぎる
+            if max_len >= 12 {
+                reasons.push(format!(
+                    "{}: 初級({})の選択肢が長すぎる (max={} chars) - 中級以上の表現混入の疑い",
+                    sub_label, level_name_upper, max_len
+                ));
+            }
+        }
     }
 
     reasons
+}
+
+/// Phase 11: 文字列に HTMLタグ (<u>, </u>, <b>, <i> 等) が含まれているかチェック.
+/// AI生成で付与された装飾タグは、フロントで JSX エスケープされて素のテキストとして
+/// ユーザに見えてしまうため、生成時点で拒否する。
+fn contains_html_tag(s: &str) -> bool {
+    // <[a-zA-Z] で始まり > で終わる部分を検索
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '<' {
+            // 次が '/' or ASCII アルファベット なら HTMLタグ候補
+            if let Some(&next) = chars.peek() {
+                if next == '/' || next.is_ascii_alphabetic() {
+                    // '>' まで読み進めて閉じるかチェック
+                    for c2 in chars.by_ref() {
+                        if c2 == '>' {
+                            return true;
+                        }
+                        // タグ内に '<' が出たらタグでない
+                        if c2 == '<' {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Phase 11: 「（　　）」(全角括弧+全角スペース×2) 以外の空括弧パターンを検出.
+/// 例: 「（）」「（ ）」「（　）」「( )」など、ユーザに見える穴埋め形式の揺れ。
+fn contains_bad_empty_paren(s: &str) -> bool {
+    // 全角: 「（」+ 空白0〜1文字 + 「）」 は NG (2文字空白が正規)
+    // 半角: 「(」+ 空白0〜2文字 + 「)」も NG
+    let chars: Vec<char> = s.chars().collect();
+    let n = chars.len();
+    let mut i = 0;
+    while i < n {
+        let c = chars[i];
+        if c == '（' {
+            // 次に 0, 1, 2 文字の空白 (全角/半角) を許容しながら '）' を探す
+            let mut j = i + 1;
+            let mut spaces = 0;
+            while j < n && (chars[j] == ' ' || chars[j] == '\u{3000}') {
+                spaces += 1;
+                j += 1;
+            }
+            if j < n && chars[j] == '）' {
+                // 空括弧発見。スペース数が 2 (全角2個) 以外は NG
+                if spaces != 2 {
+                    return true;
+                }
+                // スペース内容が全角×2 ちょうどでないと NG
+                // (例えば全角1+半角1 混在も NG)
+                let all_ideographic = chars[i+1..j].iter().all(|&c| c == '\u{3000}');
+                if !all_ideographic {
+                    return true;
+                }
+            }
+            i = j.max(i + 1);
+        } else if c == '(' {
+            let mut j = i + 1;
+            while j < n && (chars[j] == ' ' || chars[j] == '\u{3000}') {
+                j += 1;
+            }
+            if j < n && chars[j] == ')' {
+                return true; // 半角括弧は常に NG
+            }
+            i = j.max(i + 1);
+        } else {
+            i += 1;
+        }
+    }
+    false
 }
